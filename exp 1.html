@@ -1,0 +1,340 @@
+
+<?php
+// DATABASE CONNECTION
+$conn = new mysqli("localhost", "root", "", "hotel_booking");
+
+if ($conn->connect_error) {
+    die("Database connection failed");
+}
+
+$message = "";
+$booking = null;
+
+// HANDLE BOOKING
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+
+    $name = trim($_POST["name"] ?? "");
+    $email = trim($_POST["email"] ?? "");
+    $phone = trim($_POST["phone"] ?? "");
+    $room_id = (int)($_POST["room"] ?? 0);
+    $checkin = $_POST["checkin"] ?? "";
+    $checkout = $_POST["checkout"] ?? "";
+
+    if (
+        $name == "" ||
+        !filter_var($email, FILTER_VALIDATE_EMAIL) ||
+        !preg_match("/^[0-9]{10}$/", $phone) ||
+        $room_id < 1 ||
+        $checkin == "" ||
+        $checkout == ""
+    ) {
+        $message = "Please enter valid details.";
+    } elseif (
+        $checkin < date("Y-m-d") ||
+        $checkout <= $checkin
+    ) {
+        $message = "Please select valid booking dates.";
+    } else {
+
+        // CHECK ROOM AVAILABILITY
+        $check = $conn->prepare(
+            "SELECT booking_id FROM bookings
+             WHERE room_id = ?
+             AND checkin < ?
+             AND checkout > ?"
+        );
+
+        $check->bind_param("iss", $room_id, $checkout, $checkin);
+        $check->execute();
+
+        $result = $check->get_result();
+
+        if ($result->num_rows > 0) {
+            $message = "Room is already booked for these dates.";
+        } else {
+
+            // INSERT BOOKING
+            $stmt = $conn->prepare(
+                "INSERT INTO bookings
+                (customer_name, email, phone, room_id, checkin, checkout)
+                VALUES (?, ?, ?, ?, ?, ?)"
+            );
+
+            $stmt->bind_param(
+                "sssiss",
+                $name,
+                $email,
+                $phone,
+                $room_id,
+                $checkin,
+                $checkout
+            );
+
+            if ($stmt->execute()) {
+
+                $id = $conn->insert_id;
+
+                // GET BOOKING DETAILS
+                $get = $conn->prepare(
+                    "SELECT b.*, r.room_type, r.price
+                     FROM bookings b
+                     JOIN rooms r ON b.room_id = r.room_id
+                     WHERE b.booking_id = ?"
+                );
+
+                $get->bind_param("i", $id);
+                $get->execute();
+
+                $booking = $get->get_result()->fetch_assoc();
+
+                $message = "Booking Successful!";
+            } else {
+                $message = "Booking failed. Try again.";
+            }
+        }
+    }
+}
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+<title>Hotel Booking System</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f2f4f7;
+}
+
+header {
+    background: #172b4d;
+    color: white;
+    text-align: center;
+    padding: 25px;
+}
+
+nav {
+    background: #243b5a;
+    padding: 15px;
+    text-align: center;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    margin: 20px;
+}
+
+.welcome {
+    text-align: center;
+    padding: 60px 15px;
+    background: #dce8f5;
+}
+
+.welcome h2 {
+    font-size: 32px;
+}
+
+.container {
+    width: 420px;
+    max-width: calc(100% - 30px);
+    background: white;
+    padding: 25px;
+    margin: 30px auto;
+    border-radius: 10px;
+    box-shadow: 0 2px 12px #ccc;
+}
+
+h2 {
+    text-align: center;
+    color: #172b4d;
+}
+
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+input, select {
+    width: 100%;
+    padding: 11px;
+    margin-top: 7px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    margin-top: 20px;
+    background: #172b4d;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #315b8c;
+}
+
+.message {
+    text-align: center;
+    color: #087c42;
+    font-weight: bold;
+}
+
+.error {
+    color: red;
+}
+
+.success {
+    background: #e4f7e9;
+    padding: 15px;
+    border-radius: 8px;
+}
+
+footer {
+    background: #172b4d;
+    color: white;
+    text-align: center;
+    padding: 15px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h1>GRAND PALACE HOTEL</h1>
+    <p>Book Your Perfect Stay</p>
+</header>
+
+<nav>
+    <a href="index.php">Home</a>
+    <a href="#booking">Book Now</a>
+</nav>
+
+<section class="welcome">
+    <h2>Welcome to Grand Palace Hotel</h2>
+    <p>Enjoy a comfortable and relaxing stay with us.</p>
+    <a href="#booking">Book Your Room</a>
+</section>
+
+<div class="container" id="booking">
+
+<?php if ($message != ""): ?>
+
+    <p class="message">
+        <?= htmlspecialchars($message) ?>
+    </p>
+
+<?php endif; ?>
+
+<?php if ($booking): ?>
+
+    <div class="success">
+        <h2>Booking Confirmed!</h2>
+
+        <p><b>Booking ID:</b>
+        <?= htmlspecialchars($booking['booking_id']) ?></p>
+
+        <p><b>Name:</b>
+        <?= htmlspecialchars($booking['customer_name']) ?></p>
+
+        <p><b>Email:</b>
+        <?= htmlspecialchars($booking['email']) ?></p>
+
+        <p><b>Phone:</b>
+        <?= htmlspecialchars($booking['phone']) ?></p>
+
+        <p><b>Room:</b>
+        <?= htmlspecialchars($booking['room_type']) ?></p>
+
+        <p><b>Price per night:</b>
+        ₹<?= htmlspecialchars($booking['price']) ?></p>
+
+        <p><b>Check-in:</b>
+        <?= htmlspecialchars($booking['checkin']) ?></p>
+
+        <p><b>Check-out:</b>
+        <?= htmlspecialchars($booking['checkout']) ?></p>
+    </div>
+
+    <button onclick="window.location='index.php'">
+        New Booking
+    </button>
+
+<?php else: ?>
+
+    <h2>Hotel Room Booking</h2>
+
+    <form method="POST" id="bookingForm">
+
+        <label>Customer Name</label>
+        <input type="text" name="name"
+        placeholder="Enter your name" required>
+
+        <label>Email Address</label>
+        <input type="email" name="email"
+        placeholder="Enter your email" required>
+
+        <label>Phone Number</label>
+        <input type="tel" name="phone"
+        pattern="[0-9]{10}" maxlength="10"
+        placeholder="Enter 10 digit phone number" required>
+
+        <label>Select Room</label>
+        <select name="room" required>
+            <option value="">Choose Room</option>
+            <option value="1">Single Room - ₹1500</option>
+            <option value="2">Double Room - ₹2500</option>
+            <option value="3">Deluxe Room - ₹4000</option>
+            <option value="4">Suite Room - ₹6000</option>
+        </select>
+
+        <label>Check-in Date</label>
+        <input type="date" name="checkin"
+        min="<?= date('Y-m-d') ?>" required>
+
+        <label>Check-out Date</label>
+        <input type="date" name="checkout"
+        min="<?= date('Y-m-d') ?>" required>
+
+        <button type="submit">Confirm Booking</button>
+
+    </form>
+
+<?php endif; ?>
+
+</div>
+
+<footer>
+    <p>© 2026 Grand Palace Hotel | All Rights Reserved</p>
+</footer>
+
+<script>
+document.getElementById("bookingForm")?.addEventListener(
+    "submit", function(event) {
+
+        let checkin = new Date(this.checkin.value);
+        let checkout = new Date(this.checkout.value);
+
+        if (checkout <= checkin) {
+            event.preventDefault();
+            alert("Check-out date must be after check-in date.");
+        }
+    }
+);
+</script>
+
+</body>
+</html>
