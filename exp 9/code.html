@@ -1,0 +1,219 @@
+DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electronic Shop</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: #f4f5f9; color: #222; }
+  header { background: #1f2a44; color: #fff; padding: 16px 24px; }
+  header h1 { margin: 0; font-size: 22px; }
+  main { max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  h2 { margin-top: 0; font-size: 18px; }
+  input, select { padding: 8px; border: 1px solid #c8ccd6; border-radius: 6px; font-size: 14px; }
+  button { background: #e8590c; color: #fff; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  button:hover { background: #c94a08; }
+  button.sec { background: #6c757d; padding: 5px 9px; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; margin-top: 12px; }
+  .prod { border: 1px solid #e1e4ec; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .prod .cat { font-size: 12px; color: #6c757d; text-transform: uppercase; }
+  .prod .price { font-size: 18px; font-weight: 700; color: #1f2a44; }
+  .low { color: #c0392b; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 8px; border-bottom: 1px solid #e6e8ef; text-align: left; }
+  th { background: #eef0f6; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  #msg { margin-bottom: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+<header><h1>🔌 Electronic Shop</h1></header>
+<main>
+  <div id="msg"></div>
+
+  <section class="card">
+    <h2>Products</h2>
+    <input id="search" placeholder="Search name or category..." style="width:100%;max-width:340px">
+    <div class="grid" id="products"></div>
+  </section>
+
+  <section class="card">
+    <h2>Cart</h2>
+    <table>
+      <thead><tr><th>Product</th><th>Price</th><th>Qty</th><th>Subtotal</th><th></th></tr></thead>
+      <tbody id="cartBody"></tbody>
+    </table>
+    <p><strong>Total: <span id="total">₹0</span></strong></p>
+    <div class="row">
+      <input id="cname" placeholder="Customer name">
+      <input id="cphone" placeholder="Phone (10 digits)" maxlength="10">
+      <button id="checkout">Checkout</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Add Product (Inventory)</h2>
+    <form id="addForm" class="row">
+      <input id="pn" placeholder="Name" required>
+      <input id="pc" placeholder="Category" required>
+      <input id="pp" type="number" min="0" step="0.01" placeholder="Price" required>
+      <input id="ps" type="number" min="0" placeholder="Stock" required>
+      <button type="submit">Add</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Orders</h2>
+    <table>
+      <thead><tr><th>#</th><th>Customer</th><th>Date</th><th>Items</th><th>Total</th></tr></thead>
+      <tbody id="ordersBody"></tbody>
+    </table>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+<script>
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS products (
+  product_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT NOT NULL,
+  price REAL NOT NULL CHECK (price >= 0), stock INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0));
+CREATE TABLE IF NOT EXISTS customers (
+  customer_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS orders (
+  order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  customer_id INTEGER NOT NULL REFERENCES customers(customer_id),
+  order_date TEXT NOT NULL, total REAL NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS order_items (
+  item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL REFERENCES orders(order_id),
+  product_id INTEGER NOT NULL REFERENCES products(product_id),
+  qty INTEGER NOT NULL CHECK (qty > 0), price REAL NOT NULL);
+`;
+const SEED = `
+INSERT INTO products (name, category, price, stock) VALUES
+ ('Smartphone X1','Mobiles',15999,20),('Smartphone Pro Max','Mobiles',54999,8),
+ ('Laptop 15" i5','Laptops',48990,10),('Gaming Laptop RTX','Laptops',89990,4),
+ ('Bluetooth Earbuds','Audio',1999,50),('Wireless Headphones','Audio',3499,25),
+ ('Smart TV 43" 4K','TV',27990,6),('Power Bank 20000mAh','Accessories',1799,40);
+`;
+
+let db, cart = {};                       // cart: product_id -> qty
+const $ = id => document.getElementById(id);
+const money = n => "₹" + Number(n).toLocaleString("en-IN");
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function save() {
+  const bin = db.export(); let s = "";
+  bin.forEach(b => s += String.fromCharCode(b));
+  localStorage.setItem("shop_db", btoa(s));
+}
+function load() {
+  const s = localStorage.getItem("shop_db");
+  return s ? Uint8Array.from(atob(s), c => c.charCodeAt(0)) : null;
+}
+function rows(sql, p = []) {
+  const st = db.prepare(sql); st.bind(p);
+  const out = []; while (st.step()) out.push(st.getAsObject());
+  st.free(); return out;
+}
+function show(t, ok = true) { $("msg").style.color = ok ? "#1e8449" : "#c0392b"; $("msg").textContent = t; }
+
+function renderProducts() {
+  const q = "%" + $("search").value.trim() + "%";
+  const list = rows("SELECT * FROM products WHERE name LIKE ? OR category LIKE ? ORDER BY category, name", [q, q]);
+  $("products").innerHTML = list.map(p => `
+    <div class="prod">
+      <span class="cat">${esc(p.category)}</span>
+      <strong>${esc(p.name)}</strong>
+      <span class="price">${money(p.price)}</span>
+      <span class="${p.stock < 5 ? "low" : ""}">${p.stock > 0 ? "In stock: " + p.stock : "Out of stock"}</span>
+      <button ${p.stock === 0 ? "disabled" : ""} onclick="addToCart(${p.product_id})">Add to cart</button>
+    </div>`).join("") || "<p>No products found.</p>";
+}
+
+function addToCart(id) {
+  const p = rows("SELECT stock, name FROM products WHERE product_id=?", [id])[0];
+  const have = cart[id] || 0;
+  if (have + 1 > p.stock) return show(`Only ${p.stock} of "${p.name}" in stock.`, false);
+  cart[id] = have + 1; show(""); renderCart();
+}
+function removeFromCart(id) {
+  if (cart[id] > 1) cart[id]--; else delete cart[id];
+  renderCart();
+}
+function renderCart() {
+  let total = 0, html = "";
+  for (const id in cart) {
+    const p = rows("SELECT * FROM products WHERE product_id=?", [id])[0];
+    const sub = p.price * cart[id]; total += sub;
+    html += `<tr><td>${esc(p.name)}</td><td>${money(p.price)}</td><td>${cart[id]}</td>
+             <td>${money(sub)}</td><td><button class="sec" onclick="removeFromCart(${id})">−</button></td></tr>`;
+  }
+  $("cartBody").innerHTML = html || `<tr><td colspan="5">Cart is empty.</td></tr>`;
+  $("total").textContent = money(total);
+}
+
+function renderOrders() {
+  const list = rows(`
+    SELECT o.order_id, c.name, o.order_date, o.total,
+           group_concat(p.name || ' x' || i.qty, ', ') AS items
+    FROM orders o
+    JOIN customers c   ON c.customer_id = o.customer_id
+    JOIN order_items i ON i.order_id    = o.order_id
+    JOIN products p    ON p.product_id  = i.product_id
+    GROUP BY o.order_id ORDER BY o.order_id DESC`);
+  $("ordersBody").innerHTML = list.map(o => `
+    <tr><td>${o.order_id}</td><td>${esc(o.name)}</td><td>${o.order_date}</td>
+        <td>${esc(o.items)}</td><td>${money(o.total)}</td></tr>`).join("")
+    || `<tr><td colspan="5">No orders yet.</td></tr>`;
+}
+
+$("checkout").onclick = () => {
+  const name = $("cname").value.trim(), phone = $("cphone").value.trim();
+  if (!Object.keys(cart).length) return show("Cart is empty.", false);
+  if (!name || !/^\d{10}$/.test(phone)) return show("Enter a name and a 10-digit phone number.", false);
+  try {
+    db.run("BEGIN");
+    db.run("INSERT INTO customers (name, phone) VALUES (?,?)", [name, phone]);
+    const cid = rows("SELECT last_insert_rowid() AS id")[0].id;
+    db.run("INSERT INTO orders (customer_id, order_date) VALUES (?, datetime('now','localtime'))", [cid]);
+    const oid = rows("SELECT last_insert_rowid() AS id")[0].id;
+    let total = 0;
+    for (const id in cart) {
+      const p = rows("SELECT * FROM products WHERE product_id=?", [id])[0];
+      if (p.stock < cart[id]) throw new Error(`Not enough stock for ${p.name}`);
+      db.run("INSERT INTO order_items (order_id, product_id, qty, price) VALUES (?,?,?,?)", [oid, id, cart[id], p.price]);
+      db.run("UPDATE products SET stock = stock - ? WHERE product_id=?", [cart[id], id]);
+      total += p.price * cart[id];
+    }
+    db.run("UPDATE orders SET total=? WHERE order_id=?", [total, oid]);
+    db.run("COMMIT");
+    save(); cart = {};
+    $("cname").value = $("cphone").value = "";
+    renderCart(); renderProducts(); renderOrders();
+    show(`Order #${oid} placed. Total ${money(total)}`);
+  } catch (e) {
+    try { db.run("ROLLBACK"); } catch (_) {}
+    show("Error: " + e.message, false);
+  }
+};
+
+$("addForm").onsubmit = e => {
+  e.preventDefault();
+  db.run("INSERT INTO products (name, category, price, stock) VALUES (?,?,?,?)",
+         [$("pn").value.trim(), $("pc").value.trim(), +$("pp").value, +$("ps").value]);
+  save(); e.target.reset(); renderProducts(); show("Product added.");
+};
+$("search").oninput = renderProducts;
+
+initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${f}` }).then(SQL => {
+  const saved = load();
+  db = saved ? new SQL.Database(saved) : new SQL.Database();
+  if (!saved) { db.run(SCHEMA); db.run(SEED); save(); }
+  renderProducts(); renderCart(); renderOrders();
+});
+</script>
+</body>
+</html>
