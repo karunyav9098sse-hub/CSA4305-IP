@@ -1,0 +1,580 @@
+?php
+session_start();
+
+$conn = new mysqli("localhost", "root", "", "agri_mart");
+
+if ($conn->connect_error) {
+    die("Database connection failed");
+}
+
+if (!isset($_SESSION['cart'])) {
+    $_SESSION['cart'] = [];
+}
+
+$message = "";
+
+// Add product to cart
+if (isset($_POST['add_cart'])) {
+
+    $id = (int)$_POST['product_id'];
+    $qty = (int)$_POST['quantity'];
+
+    $stmt = $conn->prepare(
+        "SELECT id, stock FROM products WHERE id=?"
+    );
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $product = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if ($product && $qty > 0 &&
+        $qty <= $product['stock']) {
+
+        $current = $_SESSION['cart'][$id] ?? 0;
+
+        if ($current + $qty <= $product['stock']) {
+            $_SESSION['cart'][$id] = $current + $qty;
+            $message = "Product added to cart successfully!";
+        } else {
+            $message = "Not enough stock available.";
+        }
+
+    } else {
+        $message = "Invalid product or quantity.";
+    }
+}
+
+// Remove product from cart
+if (isset($_POST['remove'])) {
+
+    $id = (int)$_POST['remove'];
+    unset($_SESSION['cart'][$id]);
+
+    $message = "Product removed from cart.";
+}
+
+// Place order
+if (isset($_POST['place_order'])) {
+
+    $name = trim($_POST['customer_name']);
+    $phone = trim($_POST['phone']);
+    $address = trim($_POST['address']);
+
+    if ($name == "" || $phone == "" || $address == "" ||
+        empty($_SESSION['cart'])) {
+
+        $message = "Please fill customer details and add products.";
+
+    } else {
+
+        $items = [];
+        $total = 0;
+        $valid = true;
+
+        foreach ($_SESSION['cart'] as $id => $qty) {
+
+            $stmt = $conn->prepare(
+                "SELECT id, price, stock
+                 FROM products WHERE id=?"
+            );
+
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $product = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$product || $qty <= 0 ||
+                $qty > $product['stock']) {
+                $valid = false;
+                break;
+            }
+
+            $subtotal = $product['price'] * $qty;
+            $total += $subtotal;
+
+            $items[] = [
+                'id' => $id,
+                'qty' => $qty,
+                'price' => $product['price']
+            ];
+        }
+
+        if (!$valid) {
+            $message = "Stock unavailable. Please update your cart.";
+        } else {
+
+            $conn->begin_transaction();
+
+            try {
+
+                $stmt = $conn->prepare(
+                    "INSERT INTO orders
+                    (customer_name, phone, address, total_amount)
+                    VALUES (?, ?, ?, ?)"
+                );
+
+                $stmt->bind_param(
+                    "sssd", $name, $phone, $address, $total
+                );
+
+                $stmt->execute();
+                $order_id = $conn->insert_id;
+                $stmt->close();
+
+                foreach ($items as $item) {
+
+                    $pid = $item['id'];
+                    $qty = $item['qty'];
+                    $price = $item['price'];
+
+                    $stmt = $conn->prepare(
+                        "INSERT INTO order_items
+                        (order_id, product_id, quantity, price)
+                        VALUES (?, ?, ?, ?)"
+                    );
+
+                    $stmt->bind_param(
+                        "iiid", $order_id, $pid, $qty, $price
+                    );
+
+                    $stmt->execute();
+                    $stmt->close();
+
+                    $stmt = $conn->prepare(
+                        "UPDATE products
+                         SET stock = stock - ?
+                         WHERE id = ? AND stock >= ?"
+                    );
+
+                    $stmt->bind_param("iii", $qty, $pid, $qty);
+                    $stmt->execute();
+
+                    if ($stmt->affected_rows !== 1) {
+                        throw new Exception("Stock update failed.");
+                    }
+
+                    $stmt->close();
+                }
+
+                $conn->commit();
+
+                $_SESSION['cart'] = [];
+
+                $message = "Order placed successfully! Order ID: " . $order_id;
+
+            } catch (Exception $e) {
+
+                $conn->rollback();
+                $message = "Order failed. Please try again.";
+            }
+        }
+    }
+}
+
+// Fetch products
+$products = $conn->query(
+    "SELECT * FROM products ORDER BY id DESC"
+);
+
+// Fetch order history
+$orders = $conn->query(
+    "SELECT * FROM orders ORDER BY id DESC"
+);
+
+// Cart total
+$cart_total = 0;
+$cart_items = [];
+
+foreach ($_SESSION['cart'] as $id => $qty) {
+
+    $stmt = $conn->prepare(
+        "SELECT * FROM products WHERE id=?"
+    );
+
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+
+    $p = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if ($p) {
+        $subtotal = $p['price'] * $qty;
+        $cart_total += $subtotal;
+
+        $cart_items[] = [
+            'id' => $id,
+            'name' => $p['product_name'],
+            'price' => $p['price'],
+            'qty' => $qty,
+            'subtotal' => $subtotal
+        ];
+    }
+}
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Agri Mart</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f1f8e9;
+}
+
+header {
+    background: #236b35;
+    color: white;
+    padding: 25px;
+    text-align: center;
+}
+
+nav {
+    background: #174d28;
+    padding: 15px;
+    text-align: center;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    margin: 15px;
+    font-weight: bold;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 25px auto;
+    background: white;
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: 0 3px 12px #ccc;
+}
+
+h2 {
+    text-align: center;
+    color: #236b35;
+}
+
+.message {
+    text-align: center;
+    color: #147a29;
+    font-weight: bold;
+    padding: 12px;
+}
+
+.products {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 20px;
+}
+
+.card {
+    background: #f9fff5;
+    border: 1px solid #d5e8cf;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+}
+
+.card h3 {
+    color: #236b35;
+}
+
+.card p {
+    color: #555;
+}
+
+input, textarea {
+    width: 100%;
+    padding: 12px;
+    margin-top: 8px;
+    border: 1px solid #bbb;
+    border-radius: 5px;
+}
+
+button {
+    background: #25803b;
+    color: white;
+    border: none;
+    padding: 11px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-top: 10px;
+}
+
+button:hover {
+    background: #145c28;
+}
+
+.remove {
+    background: #c0392b;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 12px;
+    text-align: center;
+}
+
+th {
+    background: #236b35;
+    color: white;
+}
+
+.table-box {
+    overflow-x: auto;
+}
+
+footer {
+    text-align: center;
+    background: #174d28;
+    color: white;
+    padding: 20px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+<h1>🌾 AGRI MART</h1>
+
+<p>Your Online Agriculture Shopping Store</p>
+
+</header>
+
+<nav>
+<a href="#home">Home</a>
+<a href="#products">Products</a>
+<a href="#cart">Shopping Cart</a>
+<a href="#orders">Orders</a>
+</nav>
+
+<?php if ($message != "") { ?>
+
+<div class="message">
+<?php echo htmlspecialchars($message); ?>
+</div>
+
+<?php } ?>
+
+
+<!-- Products -->
+
+<div class="container" id="products">
+
+<h2>Our Agricultural Products</h2>
+
+<div class="products">
+
+<?php while ($row = $products->fetch_assoc()) { ?>
+
+<div class="card">
+
+<h3><?php echo htmlspecialchars($row['product_name']); ?></h3>
+
+<p>Category:
+<?php echo htmlspecialchars($row['category']); ?>
+</p>
+
+<p><b>Price: Rs.
+<?php echo number_format($row['price'], 2); ?>
+</b></p>
+
+<p>Available Stock:
+<?php echo $row['stock']; ?>
+</p>
+
+<form method="POST">
+
+<input type="hidden" name="product_id"
+value="<?php echo $row['id']; ?>">
+
+<input type="number" name="quantity"
+value="1" min="1"
+max="<?php echo $row['stock']; ?>"
+required>
+
+<button type="submit" name="add_cart"
+<?php echo $row['stock'] <= 0 ? 'disabled' : ''; ?>>
+Add to Cart
+</button>
+
+</form>
+
+</div>
+
+<?php } ?>
+
+</div>
+</div>
+
+
+<!-- Shopping Cart -->
+
+<div class="container" id="cart">
+
+<h2>Shopping Cart</h2>
+
+<div class="table-box">
+
+<table>
+
+<tr>
+<th>Product</th>
+<th>Price</th>
+<th>Quantity</th>
+<th>Subtotal</th>
+<th>Action</th>
+</tr>
+
+<?php foreach ($cart_items as $item) { ?>
+
+<tr>
+
+<td><?php echo htmlspecialchars($item['name']); ?></td>
+
+<td>Rs. <?php echo $item['price']; ?></td>
+
+<td><?php echo $item['qty']; ?></td>
+
+<td>Rs. <?php echo $item['subtotal']; ?></td>
+
+<td>
+
+<form method="POST">
+<button class="remove" type="submit"
+name="remove" value="<?php echo $item['id']; ?>">
+Remove
+</button>
+</form>
+
+</td>
+
+</tr>
+
+<?php } ?>
+
+</table>
+
+</div>
+
+<h3>Total Amount: Rs.
+<?php echo number_format($cart_total, 2); ?>
+</h3>
+
+</div>
+
+
+<!-- Customer Details and Checkout -->
+
+<div class="container">
+
+<h2>Customer Details and Order</h2>
+
+<form method="POST">
+
+<label>Customer Name</label>
+
+<input type="text" name="customer_name"
+placeholder="Enter your name" required>
+
+<label>Phone Number</label>
+
+<input type="tel" name="phone"
+placeholder="Enter phone number" required>
+
+<label>Delivery Address</label>
+
+<textarea name="address"
+placeholder="Enter delivery address"
+required></textarea>
+
+<button type="submit" name="place_order"
+<?php echo empty($cart_items) ? 'disabled' : ''; ?>>
+Place Order
+</button>
+
+</form>
+
+</div>
+
+
+<!-- Order History -->
+
+<div class="container" id="orders">
+
+<h2>Order History</h2>
+
+<div class="table-box">
+
+<table>
+
+<tr>
+<th>Order ID</th>
+<th>Customer Name</th>
+<th>Phone</th>
+<th>Address</th>
+<th>Total Amount</th>
+<th>Order Date</th>
+</tr>
+
+<?php while ($row = $orders->fetch_assoc()) { ?>
+
+<tr>
+
+<td><?php echo $row['id']; ?></td>
+
+<td><?php echo htmlspecialchars($row['customer_name']); ?></td>
+
+<td><?php echo htmlspecialchars($row['phone']); ?></td>
+
+<td><?php echo htmlspecialchars($row['address']); ?></td>
+
+<td>Rs. <?php echo $row['total_amount']; ?></td>
+
+<td><?php echo $row['order_date']; ?></td>
+
+</tr>
+
+<?php } ?>
+
+</table>
+
+</div>
+
+</div>
+
+
+<footer>
+
+<p>AGRI MART | Online Agriculture Shopping System</p>
+
+<p>Supporting Farmers and Agriculture</p>
+
+</footer>
+
+</body>
+</html>
+
+<?php
+$conn->close();
+?>
