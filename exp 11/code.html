@@ -1,0 +1,266 @@
+DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Real Estate Listings</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: #f1f5f4; color: #1d2b2a; }
+  header { background: #14594f; color: #fff; padding: 16px 24px; }
+  header h1 { margin: 0; font-size: 22px; }
+  main { max-width: 1050px; margin: 24px auto; padding: 0 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  h2 { margin-top: 0; font-size: 18px; }
+  input, select, textarea { padding: 8px; border: 1px solid #c4d0ce; border-radius: 6px; font-size: 14px; }
+  button { background: #14594f; color: #fff; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  button:hover { background: #0e433c; }
+  button.sec { background: #6c757d; font-size: 12px; padding: 6px 10px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; margin-top: 14px; }
+  .prop { border: 1px solid #dde6e4; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .prop.done { opacity: .6; }
+  .loc { color: #5d716e; font-size: 13px; }
+  .tags span { display: inline-block; font-size: 12px; border-radius: 12px; padding: 2px 9px; margin-right: 4px; background: #e4f0ee; }
+  .tags .sale { background: #fde8d7; } .tags .rent { background: #dbeafe; }
+  .price { font-size: 20px; font-weight: 700; color: #14594f; }
+  .meta { font-size: 13px; color: #44575a; }
+  .status-Available { color: #1e8449; font-weight: 600; font-size: 13px; }
+  .status-Sold, .status-Rented { color: #c0392b; font-weight: 600; font-size: 13px; }
+  .actions { display: flex; gap: 8px; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 8px; border-bottom: 1px solid #e4ebe9; text-align: left; }
+  th { background: #eaf2f0; }
+  form.f { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  form.f label { display: flex; flex-direction: column; font-size: 13px; gap: 4px; }
+  .full { grid-column: 1 / -1; }
+  #msg { margin-bottom: 12px; font-weight: 600; }
+  @media (max-width: 600px) { form.f { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header><h1>🏠 Real Estate Listings</h1></header>
+<main>
+  <div id="msg"></div>
+
+  <section class="card">
+    <h2>Find a Property</h2>
+    <div class="row">
+      <input id="fq" placeholder="Search title or locality..." style="width:220px">
+      <select id="fcity"><option value="">All cities</option></select>
+      <select id="ftype">
+        <option value="">All types</option>
+        <option>Apartment</option><option>Villa</option><option>Plot</option><option>Commercial</option>
+      </select>
+      <select id="flist">
+        <option value="">Buy or Rent</option><option>Sale</option><option>Rent</option>
+      </select>
+      <select id="fbeds">
+        <option value="0">Any bedrooms</option><option value="1">1+ BHK</option>
+        <option value="2">2+ BHK</option><option value="3">3+ BHK</option><option value="4">4+ BHK</option>
+      </select>
+      <input id="fmax" type="number" min="0" placeholder="Max price (₹)" style="width:150px">
+    </div>
+    <div class="grid" id="props"></div>
+  </section>
+
+  <section class="card" id="visitCard">
+    <h2>Book a Site Visit</h2>
+    <form class="f" id="visitForm">
+      <label class="full">Property <select id="vprop" required></select></label>
+      <label>Your Name <input id="vname" required></label>
+      <label>Phone <input id="vphone" required pattern="[0-9]{10}" title="10-digit phone number"></label>
+      <label>Visit Date <input id="vdate" type="date" required></label>
+      <label class="full">Message <textarea id="vmsg" rows="2"></textarea></label>
+      <div class="full"><button type="submit">Book Visit</button></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Add Property</h2>
+    <form class="f" id="addForm">
+      <label>Title <input id="ntitle" required></label>
+      <label>Type
+        <select id="ntype"><option>Apartment</option><option>Villa</option><option>Plot</option><option>Commercial</option></select>
+      </label>
+      <label>Listing
+        <select id="nlist"><option>Sale</option><option>Rent</option></select>
+      </label>
+      <label>City <input id="ncity" required></label>
+      <label>Locality <input id="nloc" required></label>
+      <label>Price / Monthly rent (₹) <input id="nprice" type="number" min="0" required></label>
+      <label>Bedrooms <input id="nbeds" type="number" min="0" value="0"></label>
+      <label>Area (sq ft) <input id="narea" type="number" min="1" required></label>
+      <label>Agent <select id="nagent"></select></label>
+      <div class="full"><button type="submit">Add Property</button></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Site Visit Bookings</h2>
+    <table>
+      <thead><tr><th>#</th><th>Visitor</th><th>Phone</th><th>Property</th><th>Visit Date</th><th>Agent</th></tr></thead>
+      <tbody id="visits"></tbody>
+    </table>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+<script>
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS agents (
+  agent_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS properties (
+  property_id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
+  property_type TEXT NOT NULL, listing_type TEXT NOT NULL,
+  city TEXT NOT NULL, locality TEXT NOT NULL,
+  price REAL NOT NULL CHECK (price >= 0),
+  bedrooms INTEGER NOT NULL DEFAULT 0, area_sqft INTEGER NOT NULL,
+  agent_id INTEGER NOT NULL REFERENCES agents(agent_id),
+  status TEXT NOT NULL DEFAULT 'Available');
+CREATE TABLE IF NOT EXISTS inquiries (
+  inquiry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id INTEGER NOT NULL REFERENCES properties(property_id),
+  name TEXT NOT NULL, phone TEXT NOT NULL, visit_date TEXT NOT NULL, message TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')));
+`;
+const SEED = `
+INSERT INTO agents (name, phone) VALUES
+ ('Ravi Shankar','9840011111'),('Priya Nair','9840022222'),('Arjun Mehta','9840033333');
+INSERT INTO properties (title, property_type, listing_type, city, locality, price, bedrooms, area_sqft, agent_id) VALUES
+ ('3BHK Apartment with Sea View','Apartment','Sale','Chennai','Besant Nagar',12500000,3,1650,1),
+ ('2BHK Flat near IT Park','Apartment','Rent','Chennai','OMR',28000,2,1100,1),
+ ('Luxury Villa with Garden','Villa','Sale','Bengaluru','Whitefield',45000000,4,3200,2),
+ ('1BHK Studio Apartment','Apartment','Rent','Bengaluru','Indiranagar',22000,1,620,2),
+ ('Gated Community Plot','Plot','Sale','Hyderabad','Gachibowli',8500000,0,2400,3),
+ ('Commercial Office Space','Commercial','Rent','Hyderabad','Hitech City',95000,0,1800,3),
+ ('2BHK Independent House','Villa','Sale','Coimbatore','RS Puram',9800000,2,1400,1),
+ ('4BHK Penthouse','Apartment','Sale','Chennai','Adyar',32000000,4,2800,2);
+`;
+
+let db;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const inr = n => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+function priceText(p) {
+  if (p.listing_type === "Rent") return "₹" + inr(p.price) + " / month";
+  if (p.price >= 1e7) return "₹" + inr(p.price / 1e7) + " Cr";
+  if (p.price >= 1e5) return "₹" + inr(p.price / 1e5) + " Lakh";
+  return "₹" + inr(p.price);
+}
+
+function save() {
+  const bin = db.export(); let s = "";
+  bin.forEach(b => s += String.fromCharCode(b));
+  localStorage.setItem("realestate_db", btoa(s));
+}
+function load() {
+  const s = localStorage.getItem("realestate_db");
+  return s ? Uint8Array.from(atob(s), c => c.charCodeAt(0)) : null;
+}
+function rows(sql, p = []) {
+  const st = db.prepare(sql); st.bind(p);
+  const out = []; while (st.step()) out.push(st.getAsObject());
+  st.free(); return out;
+}
+function show(t, ok = true) { $("msg").style.color = ok ? "#1e8449" : "#c0392b"; $("msg").textContent = t; }
+
+function fillSelects() {
+  const keep = $("fcity").value;
+  $("fcity").innerHTML = `<option value="">All cities</option>` +
+    rows("SELECT DISTINCT city FROM properties ORDER BY city")
+      .map(r => `<option>${esc(r.city)}</option>`).join("");
+  $("fcity").value = keep;
+  $("nagent").innerHTML = rows("SELECT * FROM agents")
+    .map(a => `<option value="${a.agent_id}">${esc(a.name)}</option>`).join("");
+  const sel = $("vprop").value;
+  $("vprop").innerHTML = rows(`SELECT property_id, title, locality, city FROM properties
+      WHERE status='Available' ORDER BY city, title`)
+    .map(p => `<option value="${p.property_id}">${esc(p.title)} — ${esc(p.locality)}, ${esc(p.city)}</option>`).join("");
+  if (sel) $("vprop").value = sel;
+}
+
+function renderProps() {
+  const q = "%" + $("fq").value.trim() + "%";
+  const city = $("fcity").value, type = $("ftype").value, lt = $("flist").value;
+  const beds = +$("fbeds").value, max = +$("fmax").value || 0;
+  const list = rows(`
+    SELECT p.*, a.name AS agent, a.phone AS agent_phone
+    FROM properties p JOIN agents a ON a.agent_id = p.agent_id
+    WHERE (p.title LIKE ? OR p.locality LIKE ?)
+      AND (? = '' OR p.city = ?) AND (? = '' OR p.property_type = ?)
+      AND (? = '' OR p.listing_type = ?) AND p.bedrooms >= ?
+      AND (? = 0 OR p.price <= ?)
+    ORDER BY (p.status <> 'Available'), p.city, p.price`,
+    [q, q, city, city, type, type, lt, lt, beds, max, max]);
+  $("props").innerHTML = list.map(p => `
+    <div class="prop ${p.status !== "Available" ? "done" : ""}">
+      <strong>${esc(p.title)}</strong>
+      <span class="loc">📍 ${esc(p.locality)}, ${esc(p.city)}</span>
+      <div class="tags"><span>${esc(p.property_type)}</span>
+        <span class="${p.listing_type.toLowerCase()}">For ${esc(p.listing_type)}</span></div>
+      <span class="price">${priceText(p)}</span>
+      <span class="meta">${p.bedrooms ? p.bedrooms + " BHK · " : ""}${p.area_sqft} sq ft</span>
+      <span class="meta">Agent: ${esc(p.agent)} (${esc(p.agent_phone)})</span>
+      <span class="status-${p.status}">${p.status}</span>
+      ${p.status === "Available" ? `<div class="actions">
+        <button onclick="bookVisit(${p.property_id})">Book Visit</button>
+        <button class="sec" onclick="closeDeal(${p.property_id})">Mark ${p.listing_type === "Sale" ? "Sold" : "Rented"}</button>
+      </div>` : ""}
+    </div>`).join("") || "<p>No properties match your filters.</p>";
+}
+
+function renderVisits() {
+  const list = rows(`
+    SELECT i.inquiry_id, i.name, i.phone, i.visit_date, p.title, p.locality, a.name AS agent
+    FROM inquiries i
+    JOIN properties p ON p.property_id = i.property_id
+    JOIN agents a     ON a.agent_id    = p.agent_id
+    ORDER BY i.visit_date, i.inquiry_id`);
+  $("visits").innerHTML = list.map(r => `
+    <tr><td>${r.inquiry_id}</td><td>${esc(r.name)}</td><td>${esc(r.phone)}</td>
+        <td>${esc(r.title)} (${esc(r.locality)})</td><td>${r.visit_date}</td><td>${esc(r.agent)}</td></tr>`).join("")
+    || `<tr><td colspan="6">No bookings yet.</td></tr>`;
+}
+
+function bookVisit(id) {
+  $("vprop").value = id;
+  $("visitCard").scrollIntoView({ behavior: "smooth" });
+}
+function closeDeal(id) {
+  db.run(`UPDATE properties SET status = CASE listing_type WHEN 'Sale' THEN 'Sold' ELSE 'Rented' END
+          WHERE property_id = ?`, [id]);
+  save(); refresh(); show("Property status updated.");
+}
+
+$("visitForm").onsubmit = e => {
+  e.preventDefault();
+  if (!$("vprop").value) return show("No available property selected.", false);
+  db.run("INSERT INTO inquiries (property_id, name, phone, visit_date, message) VALUES (?,?,?,?,?)",
+    [+$("vprop").value, $("vname").value.trim(), $("vphone").value, $("vdate").value, $("vmsg").value.trim()]);
+  save(); e.target.reset(); renderVisits(); show("Site visit booked. The agent will contact you.");
+};
+
+$("addForm").onsubmit = e => {
+  e.preventDefault();
+  db.run(`INSERT INTO properties (title, property_type, listing_type, city, locality, price, bedrooms, area_sqft, agent_id)
+          VALUES (?,?,?,?,?,?,?,?,?)`,
+    [$("ntitle").value.trim(), $("ntype").value, $("nlist").value, $("ncity").value.trim(),
+     $("nloc").value.trim(), +$("nprice").value, +$("nbeds").value || 0, +$("narea").value, +$("nagent").value]);
+  save(); e.target.reset(); refresh(); show("Property added.");
+};
+
+function refresh() { fillSelects(); renderProps(); renderVisits(); }
+["fq", "fmax"].forEach(id => $(id).oninput = renderProps);
+["fcity", "ftype", "flist", "fbeds"].forEach(id => $(id).onchange = renderProps);
+
+initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${f}` }).then(SQL => {
+  const saved = load();
+  db = saved ? new SQL.Database(saved) : new SQL.Database();
+  if (!saved) { db.run(SCHEMA); db.run(SEED); save(); }
+  $("vdate").min = new Date().toISOString().split("T")[0];
+  refresh();
+});
+</script>
+</body>
+</html>
