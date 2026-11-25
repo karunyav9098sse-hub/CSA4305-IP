@@ -1,0 +1,281 @@
+?php
+$conn = new mysqli("localhost", "root", "", "toll_db");
+
+if ($conn->connect_error) {
+    die("Database connection failed");
+}
+
+$message = "";
+$rates = [
+    "Bike" => 20,
+    "Car" => 60,
+    "Van" => 80,
+    "Bus" => 120,
+    "Truck" => 150
+];
+
+// Process payment
+if (isset($_POST['pay'])) {
+
+    $vehicle = strtoupper(trim($_POST['vehicle_number']));
+    $type = $_POST['vehicle_type'];
+    $plaza = $_POST['toll_plaza'];
+    $method = $_POST['payment_method'];
+
+    if (!preg_match('/^[A-Z0-9 -]{4,20}$/', $vehicle) ||
+        !isset($rates[$type]) ||
+        !in_array($method, ["FASTag", "UPI", "Cash", "Card"]) ||
+        !in_array($plaza, [
+            "Chengalpattu Toll Plaza",
+            "Paranur Toll Plaza",
+            "Sriperumbudur Toll Plaza"
+        ])) {
+        $message = "Invalid payment details.";
+    } else {
+
+        $amount = $rates[$type];
+
+        $stmt = $conn->prepare(
+            "INSERT INTO toll_payments
+            (vehicle_number, vehicle_type, toll_plaza,
+            toll_amount, payment_method)
+            VALUES (?, ?, ?, ?, ?)"
+        );
+
+        $stmt->bind_param(
+            "sssds",
+            $vehicle, $type, $plaza, $amount, $method
+        );
+
+        if ($stmt->execute()) {
+            $message = "Payment Successful! Amount: Rs. " . $amount;
+        } else {
+            $message = "Payment failed.";
+        }
+
+        $stmt->close();
+    }
+}
+
+// Fetch payment history
+$result = $conn->query(
+    "SELECT * FROM toll_payments ORDER BY id DESC"
+);
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+<title>Toll Payment System</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: #eaf2f8;
+    margin: 0;
+    padding: 20px;
+}
+
+header {
+    background: #154360;
+    color: white;
+    text-align: center;
+    padding: 25px;
+    border-radius: 10px;
+}
+
+.container {
+    max-width: 900px;
+    margin: 25px auto;
+    background: white;
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: 0 3px 12px #bbb;
+}
+
+h2 {
+    color: #154360;
+    text-align: center;
+}
+
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+input, select {
+    width: 100%;
+    padding: 12px;
+    margin-top: 7px;
+    border: 1px solid #aaa;
+    border-radius: 5px;
+}
+
+button {
+    width: 100%;
+    background: #117864;
+    color: white;
+    padding: 14px;
+    border: none;
+    border-radius: 5px;
+    margin-top: 20px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #0b5345;
+}
+
+.message {
+    text-align: center;
+    color: green;
+    font-weight: bold;
+    margin: 15px;
+}
+
+.table-box {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 12px;
+    text-align: center;
+}
+
+th {
+    background: #154360;
+    color: white;
+}
+
+tr:nth-child(even) {
+    background: #f2f2f2;
+}
+
+footer {
+    text-align: center;
+    padding: 20px;
+    color: #555;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h1>FASTag Toll Payment System</h1>
+    <p>Online Toll Payment Management</p>
+</header>
+
+<div class="container">
+
+<h2>Vehicle Toll Payment</h2>
+
+<?php if ($message != "") { ?>
+    <div class="message">
+        <?php echo htmlspecialchars($message); ?>
+    </div>
+<?php } ?>
+
+<form method="POST">
+
+    <label>Vehicle Number</label>
+    <input type="text" name="vehicle_number"
+    placeholder="TN01AB1234" required>
+
+    <label>Vehicle Type</label>
+    <select name="vehicle_type" required>
+        <option value="">Select Vehicle</option>
+        <option value="Bike">Bike</option>
+        <option value="Car">Car / Jeep</option>
+        <option value="Van">Van</option>
+        <option value="Bus">Bus</option>
+        <option value="Truck">Truck</option>
+    </select>
+
+    <label>Toll Plaza</label>
+    <select name="toll_plaza" required>
+        <option value="">Select Toll Plaza</option>
+        <option value="Chengalpattu Toll Plaza">
+        Chengalpattu</option>
+        <option value="Paranur Toll Plaza">
+        Paranur</option>
+        <option value="Sriperumbudur Toll Plaza">
+        Sriperumbudur</option>
+    </select>
+
+    <label>Payment Method</label>
+    <select name="payment_method" required>
+        <option value="">Select Payment Method</option>
+        <option value="FASTag">FASTag</option>
+        <option value="UPI">UPI</option>
+        <option value="Cash">Cash</option>
+        <option value="Card">Debit / Credit Card</option>
+    </select>
+
+    <button type="submit" name="pay">
+        Pay Toll Amount
+    </button>
+
+</form>
+</div>
+
+<div class="container">
+
+<h2>Payment History</h2>
+
+<div class="table-box">
+<table>
+
+<tr>
+    <th>ID</th>
+    <th>Vehicle Number</th>
+    <th>Vehicle Type</th>
+    <th>Toll Plaza</th>
+    <th>Amount</th>
+    <th>Payment Method</th>
+    <th>Status</th>
+    <th>Date</th>
+</tr>
+
+<?php while ($row = $result->fetch_assoc()) { ?>
+
+<tr>
+    <td><?php echo $row['id']; ?></td>
+    <td><?php echo htmlspecialchars($row['vehicle_number']); ?></td>
+    <td><?php echo htmlspecialchars($row['vehicle_type']); ?></td>
+    <td><?php echo htmlspecialchars($row['toll_plaza']); ?></td>
+    <td>Rs. <?php echo $row['toll_amount']; ?></td>
+    <td><?php echo htmlspecialchars($row['payment_method']); ?></td>
+    <td><?php echo htmlspecialchars($row['payment_status']); ?></td>
+    <td><?php echo $row['payment_date']; ?></td>
+</tr>
+
+<?php } ?>
+
+</table>
+</div>
+</div>
+
+<footer>
+    <p>Toll Payment Management System</p>
+</footer>
+
+</body>
+</html>
+
+<?php
+$conn->close();
+?>
