@@ -1,0 +1,448 @@
+
+<?php
+$conn = new mysqli("localhost", "root", "", "flight_reservation");
+
+if ($conn->connect_error) {
+    die("Database connection failed");
+}
+
+$message = "";
+$reservation = null;
+
+// HANDLE FLIGHT BOOKING
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+
+    $name = trim($_POST["name"] ?? "");
+    $email = trim($_POST["email"] ?? "");
+    $phone = trim($_POST["phone"] ?? "");
+    $flight_id = (int)($_POST["flight_id"] ?? 0);
+    $travel_date = $_POST["travel_date"] ?? "";
+    $travel_class = $_POST["travel_class"] ?? "";
+    $passengers = (int)($_POST["passengers"] ?? 0);
+
+    $classes = [
+        "Economy" => 1,
+        "Business" => 2.5
+    ];
+
+    if (
+        $name == "" ||
+        !filter_var($email, FILTER_VALIDATE_EMAIL) ||
+        !preg_match("/^[0-9]{10}$/", $phone) ||
+        $flight_id < 1 ||
+        $travel_date == "" ||
+        !isset($classes[$travel_class]) ||
+        $passengers < 1 ||
+        $passengers > 6
+    ) {
+        $message = "Please enter valid booking details.";
+
+    } elseif ($travel_date < date("Y-m-d")) {
+
+        $message = "Please select a valid travel date.";
+
+    } else {
+
+        // GET FLIGHT DETAILS
+        $stmt = $conn->prepare(
+            "SELECT * FROM flights WHERE flight_id = ?"
+        );
+
+        $stmt->bind_param("i", $flight_id);
+        $stmt->execute();
+
+        $flight = $stmt->get_result()->fetch_assoc();
+
+        if (!$flight) {
+
+            $message = "Invalid flight selection.";
+
+        } else {
+
+            // CHECK SEAT AVAILABILITY
+            $check = $conn->prepare(
+                "SELECT COALESCE(SUM(passengers), 0) AS booked
+                 FROM reservations
+                 WHERE flight_id = ? AND travel_date = ?"
+            );
+
+            $check->bind_param("is", $flight_id, $travel_date);
+            $check->execute();
+
+            $result = $check->get_result()->fetch_assoc();
+
+            $available = $flight["total_seats"] - $result["booked"];
+
+            if ($passengers > $available) {
+
+                $message = "Only " . $available . " seats available.";
+
+            } else {
+
+                // CALCULATE TOTAL FARE
+                $total = $flight["base_fare"]
+                       * $classes[$travel_class]
+                       * $passengers;
+
+                // SAVE RESERVATION
+                $insert = $conn->prepare(
+                    "INSERT INTO reservations
+                    (passenger_name, email, phone, flight_id,
+                     travel_date, travel_class, passengers, total_fare)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                );
+
+                $insert->bind_param(
+                    "sssissid",
+                    $name,
+                    $email,
+                    $phone,
+                    $flight_id,
+                    $travel_date,
+                    $travel_class,
+                    $passengers,
+                    $total
+                );
+
+                if ($insert->execute()) {
+
+                    $reservation = [
+                        "id" => $conn->insert_id,
+                        "name" => $name,
+                        "email" => $email,
+                        "phone" => $phone,
+                        "flight" => $flight["flight_name"],
+                        "number" => $flight["flight_number"],
+                        "source" => $flight["source"],
+                        "destination" => $flight["destination"],
+                        "date" => $travel_date,
+                        "class" => $travel_class,
+                        "passengers" => $passengers,
+                        "fare" => $total
+                    ];
+
+                    $message = "Flight Booking Successful!";
+
+                } else {
+
+                    $message = "Booking failed. Please try again.";
+
+                }
+            }
+        }
+    }
+}
+
+// GET FLIGHT DETAILS
+$flights = $conn->query("SELECT * FROM flights");
+
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Flight Reservation System</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f2f4f7;
+}
+
+header {
+    background: #142d4e;
+    color: white;
+    text-align: center;
+    padding: 25px;
+}
+
+nav {
+    background: #24476c;
+    padding: 15px;
+    text-align: center;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    margin: 20px;
+}
+
+.welcome {
+    text-align: center;
+    padding: 55px 15px;
+    background: #dce8f5;
+}
+
+.welcome h2 {
+    font-size: 30px;
+}
+
+.container {
+    width: 450px;
+    max-width: calc(100% - 30px);
+    background: white;
+    padding: 25px;
+    margin: 30px auto;
+    border-radius: 10px;
+    box-shadow: 0 2px 12px #ccc;
+}
+
+h2 {
+    text-align: center;
+    color: #142d4e;
+}
+
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+input, select {
+    width: 100%;
+    padding: 11px;
+    margin-top: 7px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    margin-top: 20px;
+    background: #142d4e;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #315b8c;
+}
+
+.message {
+    text-align: center;
+    color: #087c42;
+    font-weight: bold;
+}
+
+.success {
+    background: #e4f7e9;
+    padding: 15px;
+    border-radius: 8px;
+}
+
+footer {
+    background: #142d4e;
+    color: white;
+    text-align: center;
+    padding: 15px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+    <h1>SKYLINE AIRLINES</h1>
+
+    <p>Book Your Flight and Explore the World</p>
+
+</header>
+
+<nav>
+
+    <a href="index.php">Home</a>
+
+    <a href="#booking">Book Flight</a>
+
+</nav>
+
+<section class="welcome">
+
+    <h2>Welcome to Skyline Airlines</h2>
+
+    <p>Travel safely, comfortably and conveniently.</p>
+
+</section>
+
+<div class="container" id="booking">
+
+<?php if ($message != ""): ?>
+
+    <p class="message">
+        <?= htmlspecialchars($message) ?>
+    </p>
+
+<?php endif; ?>
+
+
+<?php if ($reservation): ?>
+
+    <div class="success">
+
+        <h2>Flight Booking Confirmed!</h2>
+
+        <p><b>Booking ID:</b>
+        <?= $reservation["id"] ?></p>
+
+        <p><b>Passenger Name:</b>
+        <?= htmlspecialchars($reservation["name"]) ?></p>
+
+        <p><b>Email:</b>
+        <?= htmlspecialchars($reservation["email"]) ?></p>
+
+        <p><b>Phone:</b>
+        <?= htmlspecialchars($reservation["phone"]) ?></p>
+
+        <p><b>Flight Name:</b>
+        <?= htmlspecialchars($reservation["flight"]) ?></p>
+
+        <p><b>Flight Number:</b>
+        <?= htmlspecialchars($reservation["number"]) ?></p>
+
+        <p><b>From:</b>
+        <?= htmlspecialchars($reservation["source"]) ?></p>
+
+        <p><b>To:</b>
+        <?= htmlspecialchars($reservation["destination"]) ?></p>
+
+        <p><b>Travel Date:</b>
+        <?= htmlspecialchars($reservation["date"]) ?></p>
+
+        <p><b>Travel Class:</b>
+        <?= htmlspecialchars($reservation["class"]) ?></p>
+
+        <p><b>Passengers:</b>
+        <?= $reservation["passengers"] ?></p>
+
+        <p><b>Total Fare:</b>
+        ₹<?= number_format($reservation["fare"], 2) ?></p>
+
+    </div>
+
+    <button onclick="window.location='index.php'">
+        Book Another Flight
+    </button>
+
+<?php else: ?>
+
+    <h2>Flight Reservation</h2>
+
+    <form method="POST" id="bookingForm">
+
+        <label>Passenger Name</label>
+
+        <input type="text" name="name"
+        placeholder="Enter passenger name" required>
+
+        <label>Email Address</label>
+
+        <input type="email" name="email"
+        placeholder="Enter email address" required>
+
+        <label>Phone Number</label>
+
+        <input type="tel" name="phone"
+        pattern="[0-9]{10}" maxlength="10"
+        placeholder="Enter 10 digit phone number" required>
+
+        <label>Select Flight</label>
+
+        <select name="flight_id" required>
+
+            <option value="">Choose Flight</option>
+
+            <?php while ($row = $flights->fetch_assoc()): ?>
+
+                <option value="<?= $row["flight_id"] ?>">
+
+                    <?= htmlspecialchars($row["flight_name"]) ?>
+
+                    (<?= htmlspecialchars($row["flight_number"]) ?>)
+
+                    - <?= htmlspecialchars($row["source"]) ?>
+
+                    to <?= htmlspecialchars($row["destination"]) ?>
+
+                    - ₹<?= $row["base_fare"] ?>
+
+                </option>
+
+            <?php endwhile; ?>
+
+        </select>
+
+        <label>Travel Date</label>
+
+        <input type="date" name="travel_date"
+        min="<?= date('Y-m-d') ?>" required>
+
+        <label>Select Travel Class</label>
+
+        <select name="travel_class" required>
+
+            <option value="">Choose Class</option>
+
+            <option value="Economy">Economy</option>
+
+            <option value="Business">Business</option>
+
+        </select>
+
+        <label>Number of Passengers</label>
+
+        <input type="number" name="passengers"
+        min="1" max="6" value="1" required>
+
+        <button type="submit">
+            Confirm Flight Booking
+        </button>
+
+    </form>
+
+<?php endif; ?>
+
+</div>
+
+<footer>
+
+    <p>© 2026 Skyline Airlines | All Rights Reserved</p>
+
+</footer>
+
+<script>
+
+document.getElementById("bookingForm")?.addEventListener(
+    "submit", function(event) {
+
+        let passengers = Number(this.passengers.value);
+
+        if (passengers < 1 || passengers > 6) {
+
+            event.preventDefault();
+
+            alert("Please select 1 to 6 passengers.");
+
+        }
+
+    }
+);
+
+</script>
+
+</body>
+</html>
