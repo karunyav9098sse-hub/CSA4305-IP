@@ -1,0 +1,438 @@
+?php
+$conn = new mysqli("localhost", "root", "", "veterinary_db");
+
+if ($conn->connect_error) {
+    die("Database connection failed");
+}
+
+$message = "";
+
+// Book appointment
+if (isset($_POST['book'])) {
+
+    $owner = trim($_POST['owner_name']);
+    $phone = trim($_POST['phone']);
+    $email = trim($_POST['email']);
+    $pet = trim($_POST['pet_name']);
+    $animal = $_POST['animal_type'];
+    $doctor = $_POST['doctor_name'];
+    $date = $_POST['consultation_date'];
+    $time = $_POST['consultation_time'];
+    $problem = trim($_POST['problem']);
+
+    $animals = ["Dog", "Cat", "Cow", "Goat", "Bird", "Other"];
+    $doctors = [
+        "Dr. Arun - General Veterinary",
+        "Dr. Priya - Pet Specialist",
+        "Dr. Kumar - Animal Surgeon",
+        "Dr. Divya - Veterinary Physician"
+    ];
+
+    if (
+        $owner == "" || $phone == "" || $pet == "" ||
+        $problem == "" ||
+        !in_array($animal, $animals, true) ||
+        !in_array($doctor, $doctors, true) ||
+        !preg_match('/^[0-9]{10,15}$/', $phone) ||
+        !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) ||
+        !preg_match('/^\d{2}:\d{2}$/', $time) ||
+        !checkdate(
+            (int)substr($date, 5, 2),
+            (int)substr($date, 8, 2),
+            (int)substr($date, 0, 4)
+        ) ||
+        $date < date('Y-m-d') ||
+        ($email != "" && !filter_var($email, FILTER_VALIDATE_EMAIL))
+    ) {
+        $message = "Please enter valid appointment details.";
+    } else {
+
+        $stmt = $conn->prepare(
+            "INSERT INTO appointments
+            (owner_name, phone, email, pet_name,
+            animal_type, doctor_name, consultation_date,
+            consultation_time, problem)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        );
+
+        $stmt->bind_param(
+            "sssssssss",
+            $owner, $phone, $email, $pet,
+            $animal, $doctor, $date, $time, $problem
+        );
+
+        if ($stmt->execute()) {
+            $message = "Appointment booked successfully! Booking ID: "
+                       . $conn->insert_id;
+        } else {
+            $message = "Appointment booking failed.";
+        }
+
+        $stmt->close();
+    }
+}
+
+// Update appointment status
+if (isset($_POST['update'])) {
+
+    $id = (int)$_POST['appointment_id'];
+    $status = $_POST['status'];
+
+    if (in_array($status, ["Pending", "Confirmed", "Completed", "Cancelled"], true)) {
+
+        $stmt = $conn->prepare(
+            "UPDATE appointments SET status=? WHERE id=?"
+        );
+
+        $stmt->bind_param("si", $status, $id);
+        $stmt->execute();
+
+        $message = "Appointment status updated.";
+        $stmt->close();
+    }
+}
+
+// Fetch appointments
+$result = $conn->query(
+    "SELECT * FROM appointments ORDER BY id DESC"
+);
+
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Veterinary Consultation System</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: #eaf5f0;
+    margin: 0;
+    padding: 20px;
+}
+
+header {
+    background: #187a55;
+    color: white;
+    text-align: center;
+    padding: 25px;
+    border-radius: 10px;
+}
+
+.container {
+    max-width: 1000px;
+    margin: 25px auto;
+    background: white;
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: 0 3px 12px #ccc;
+}
+
+h2 {
+    text-align: center;
+    color: #187a55;
+}
+
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+input, select, textarea {
+    width: 100%;
+    padding: 12px;
+    margin-top: 7px;
+    border: 1px solid #bbb;
+    border-radius: 5px;
+}
+
+textarea {
+    height: 90px;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    margin-top: 20px;
+    background: #187a55;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #10583c;
+}
+
+.message {
+    text-align: center;
+    color: green;
+    font-weight: bold;
+    margin: 15px;
+}
+
+.table-box {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: center;
+}
+
+th {
+    background: #187a55;
+    color: white;
+}
+
+tr:nth-child(even) {
+    background: #f2f2f2;
+}
+
+.status-form {
+    min-width: 130px;
+}
+
+.status-form select,
+.status-form button {
+    padding: 7px;
+    margin-top: 5px;
+}
+
+footer {
+    text-align: center;
+    padding: 15px;
+    color: #555;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+<h1>🐾 VETERINARY CONSULTATION</h1>
+
+<p>Online Pet Healthcare and Appointment Booking</p>
+
+</header>
+
+
+<!-- Appointment Form -->
+
+<div class="container">
+
+<h2>Book Veterinary Appointment</h2>
+
+<?php if ($message != "") { ?>
+
+<div class="message">
+<?php echo htmlspecialchars($message); ?>
+</div>
+
+<?php } ?>
+
+<form method="POST">
+
+<label>Pet Owner Name</label>
+
+<input type="text" name="owner_name"
+placeholder="Enter owner name" required>
+
+<label>Phone Number</label>
+
+<input type="tel" name="phone"
+placeholder="Enter phone number"
+pattern="[0-9]{10,15}" required>
+
+<label>Email Address</label>
+
+<input type="email" name="email"
+placeholder="Enter email address">
+
+<label>Pet Name</label>
+
+<input type="text" name="pet_name"
+placeholder="Enter pet name" required>
+
+<label>Animal Type</label>
+
+<select name="animal_type" required>
+
+<option value="">Select Animal</option>
+<option value="Dog">Dog</option>
+<option value="Cat">Cat</option>
+<option value="Cow">Cow</option>
+<option value="Goat">Goat</option>
+<option value="Bird">Bird</option>
+<option value="Other">Other</option>
+
+</select>
+
+<label>Select Veterinary Doctor</label>
+
+<select name="doctor_name" required>
+
+<option value="">Select Doctor</option>
+
+<option value="Dr. Arun - General Veterinary">
+Dr. Arun - General Veterinary
+</option>
+
+<option value="Dr. Priya - Pet Specialist">
+Dr. Priya - Pet Specialist
+</option>
+
+<option value="Dr. Kumar - Animal Surgeon">
+Dr. Kumar - Animal Surgeon
+</option>
+
+<option value="Dr. Divya - Veterinary Physician">
+Dr. Divya - Veterinary Physician
+</option>
+
+</select>
+
+<label>Consultation Date</label>
+
+<input type="date" name="consultation_date"
+min="<?php echo date('Y-m-d'); ?>" required>
+
+<label>Consultation Time</label>
+
+<input type="time" name="consultation_time" required>
+
+<label>Describe Pet Health Problem</label>
+
+<textarea name="problem"
+placeholder="Enter your pet health problem"
+required></textarea>
+
+<button type="submit" name="book">
+Book Appointment
+</button>
+
+</form>
+
+</div>
+
+
+<!-- Appointment History -->
+
+<div class="container">
+
+<h2>Appointment Details</h2>
+
+<div class="table-box">
+
+<table>
+
+<tr>
+
+<th>ID</th>
+<th>Owner Name</th>
+<th>Phone</th>
+<th>Pet Name</th>
+<th>Animal</th>
+<th>Doctor</th>
+<th>Date</th>
+<th>Time</th>
+<th>Problem</th>
+<th>Status</th>
+<th>Update</th>
+
+</tr>
+
+<?php while ($row = $result->fetch_assoc()) { ?>
+
+<tr>
+
+<td><?php echo $row['id']; ?></td>
+
+<td><?php echo htmlspecialchars($row['owner_name']); ?></td>
+
+<td><?php echo htmlspecialchars($row['phone']); ?></td>
+
+<td><?php echo htmlspecialchars($row['pet_name']); ?></td>
+
+<td><?php echo htmlspecialchars($row['animal_type']); ?></td>
+
+<td><?php echo htmlspecialchars($row['doctor_name']); ?></td>
+
+<td><?php echo htmlspecialchars($row['consultation_date']); ?></td>
+
+<td><?php echo htmlspecialchars($row['consultation_time']); ?></td>
+
+<td><?php echo htmlspecialchars($row['problem']); ?></td>
+
+<td><?php echo htmlspecialchars($row['status']); ?></td>
+
+<td>
+
+<form method="POST" class="status-form">
+
+<input type="hidden" name="appointment_id"
+value="<?php echo $row['id']; ?>">
+
+<select name="status">
+
+<option value="Pending">Pending</option>
+<option value="Confirmed">Confirmed</option>
+<option value="Completed">Completed</option>
+<option value="Cancelled">Cancelled</option>
+
+</select>
+
+<button type="submit" name="update">
+Update
+</button>
+
+</form>
+
+</td>
+
+</tr>
+
+<?php } ?>
+
+</table>
+
+</div>
+
+</div>
+
+
+<footer>
+
+<p>Veterinary Consultation Management System</p>
+
+<p>Care for Every Paw, Every Day!</p>
+
+</footer>
+
+</body>
+</html>
+
+<?php
+$conn->close();
+?>
+
