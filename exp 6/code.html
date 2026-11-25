@@ -1,0 +1,487 @@
+
+<?php
+
+$conn = new mysqli("localhost", "root", "", "cake_ordering");
+
+if ($conn->connect_error) {
+    die("Database connection failed");
+}
+
+$message = "";
+$order = null;
+
+// CAKE SIZE PRICE MULTIPLIERS
+$sizes = [
+    "0.5 KG" => 1,
+    "1 KG" => 1.8,
+    "2 KG" => 3.4
+];
+
+// HANDLE CAKE ORDER
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+
+    $name = trim($_POST["name"] ?? "");
+    $email = trim($_POST["email"] ?? "");
+    $phone = trim($_POST["phone"] ?? "");
+    $cake_id = (int)($_POST["cake_id"] ?? 0);
+    $cake_size = $_POST["cake_size"] ?? "";
+    $quantity = (int)($_POST["quantity"] ?? 0);
+    $delivery_date = $_POST["delivery_date"] ?? "";
+    $address = trim($_POST["address"] ?? "");
+
+    if (
+        $name == "" ||
+        !filter_var($email, FILTER_VALIDATE_EMAIL) ||
+        !preg_match("/^[0-9]{10}$/", $phone) ||
+        $cake_id < 1 ||
+        !isset($sizes[$cake_size]) ||
+        $quantity < 1 ||
+        $quantity > 20 ||
+        $delivery_date == "" ||
+        $address == ""
+    ) {
+
+        $message = "Please enter valid order details.";
+
+    } elseif ($delivery_date < date("Y-m-d")) {
+
+        $message = "Please select a valid delivery date.";
+
+    } else {
+
+        // GET CAKE DETAILS
+        $stmt = $conn->prepare(
+            "SELECT * FROM cakes WHERE cake_id = ?"
+        );
+
+        $stmt->bind_param("i", $cake_id);
+        $stmt->execute();
+
+        $cake = $stmt->get_result()->fetch_assoc();
+
+        if (!$cake) {
+
+            $message = "Invalid cake selection.";
+
+        } else {
+
+            // CALCULATE TOTAL PRICE
+            $total = $cake["base_price"]
+                   * $sizes[$cake_size]
+                   * $quantity;
+
+            // SAVE ORDER
+            $insert = $conn->prepare(
+                "INSERT INTO orders
+                (customer_name, email, phone, cake_id,
+                 cake_size, delivery_date, address,
+                 quantity, total_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            );
+
+            $insert->bind_param(
+                "sssisssid",
+                $name,
+                $email,
+                $phone,
+                $cake_id,
+                $cake_size,
+                $delivery_date,
+                $address,
+                $quantity,
+                $total
+            );
+
+            if ($insert->execute()) {
+
+                $order = [
+                    "id" => $conn->insert_id,
+                    "name" => $name,
+                    "email" => $email,
+                    "phone" => $phone,
+                    "cake" => $cake["cake_name"],
+                    "size" => $cake_size,
+                    "date" => $delivery_date,
+                    "address" => $address,
+                    "quantity" => $quantity,
+                    "total" => $total
+                ];
+
+                $message = "Cake Order Placed Successfully!";
+
+            } else {
+
+                $message = "Order failed. Please try again.";
+
+            }
+        }
+    }
+}
+
+// GET CAKE LIST
+$cakes = $conn->query("SELECT * FROM cakes");
+
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Cake Ordering System</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #fff5f5;
+}
+
+header {
+    background: #8e354b;
+    color: white;
+    text-align: center;
+    padding: 25px;
+}
+
+nav {
+    background: #64263a;
+    padding: 15px;
+    text-align: center;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    margin: 20px;
+}
+
+.welcome {
+    text-align: center;
+    padding: 55px 15px;
+    background: #f8dce3;
+}
+
+.welcome h2 {
+    font-size: 30px;
+    color: #64263a;
+}
+
+.container {
+    width: 450px;
+    max-width: calc(100% - 30px);
+    background: white;
+    padding: 25px;
+    margin: 30px auto;
+    border-radius: 10px;
+    box-shadow: 0 2px 12px #e3c3ca;
+}
+
+h2 {
+    text-align: center;
+    color: #8e354b;
+}
+
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+input, select, textarea {
+    width: 100%;
+    padding: 11px;
+    margin-top: 7px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-family: Arial;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 75px;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    margin-top: 20px;
+    background: #8e354b;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #64263a;
+}
+
+.message {
+    text-align: center;
+    color: #087c42;
+    font-weight: bold;
+}
+
+.success {
+    background: #fff0f3;
+    padding: 15px;
+    border-radius: 8px;
+}
+
+.price {
+    background: #fff0f3;
+    padding: 12px;
+    margin-top: 15px;
+    text-align: center;
+    color: #8e354b;
+    font-weight: bold;
+}
+
+footer {
+    background: #64263a;
+    color: white;
+    text-align: center;
+    padding: 15px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+    <h1>SWEET CAKE SHOP</h1>
+
+    <p>Fresh Cakes for Every Celebration</p>
+
+</header>
+
+<nav>
+
+    <a href="index.php">Home</a>
+
+    <a href="#ordering">Order Cake</a>
+
+</nav>
+
+<section class="welcome">
+
+    <h2>Welcome to Sweet Cake Shop</h2>
+
+    <p>Make every celebration sweeter with our delicious cakes!</p>
+
+</section>
+
+<div class="container" id="ordering">
+
+<?php if ($message != ""): ?>
+
+    <p class="message">
+        <?= htmlspecialchars($message) ?>
+    </p>
+
+<?php endif; ?>
+
+
+<?php if ($order): ?>
+
+    <div class="success">
+
+        <h2>Order Confirmed!</h2>
+
+        <p><b>Order ID:</b>
+        <?= $order["id"] ?></p>
+
+        <p><b>Customer Name:</b>
+        <?= htmlspecialchars($order["name"]) ?></p>
+
+        <p><b>Email:</b>
+        <?= htmlspecialchars($order["email"]) ?></p>
+
+        <p><b>Phone:</b>
+        <?= htmlspecialchars($order["phone"]) ?></p>
+
+        <p><b>Cake Name:</b>
+        <?= htmlspecialchars($order["cake"]) ?></p>
+
+        <p><b>Cake Size:</b>
+        <?= htmlspecialchars($order["size"]) ?></p>
+
+        <p><b>Quantity:</b>
+        <?= $order["quantity"] ?></p>
+
+        <p><b>Delivery Date:</b>
+        <?= htmlspecialchars($order["date"]) ?></p>
+
+        <p><b>Delivery Address:</b>
+        <?= htmlspecialchars($order["address"]) ?></p>
+
+        <p><b>Total Price:</b>
+        ₹<?= number_format($order["total"], 2) ?></p>
+
+    </div>
+
+    <button onclick="window.location='index.php'">
+        Place Another Order
+    </button>
+
+<?php else: ?>
+
+    <h2>Order Your Favourite Cake</h2>
+
+    <form method="POST" id="orderForm">
+
+        <label>Customer Name</label>
+
+        <input type="text" name="name"
+        placeholder="Enter your name" required>
+
+        <label>Email Address</label>
+
+        <input type="email" name="email"
+        placeholder="Enter your email" required>
+
+        <label>Phone Number</label>
+
+        <input type="tel" name="phone"
+        pattern="[0-9]{10}" maxlength="10"
+        placeholder="Enter 10 digit phone number" required>
+
+        <label>Select Cake</label>
+
+        <select name="cake_id" id="cake" required>
+
+            <option value="">Choose Cake</option>
+
+            <?php while ($row = $cakes->fetch_assoc()): ?>
+
+                <option
+                    value="<?= $row["cake_id"] ?>"
+                    data-price="<?= $row["base_price"] ?>"
+                >
+
+                    <?= htmlspecialchars($row["cake_name"]) ?>
+
+                    - ₹<?= $row["base_price"] ?>
+
+                </option>
+
+            <?php endwhile; ?>
+
+        </select>
+
+        <label>Select Cake Size</label>
+
+        <select name="cake_size" id="size" required>
+
+            <option value="">Choose Size</option>
+
+            <option value="0.5 KG">0.5 KG</option>
+
+            <option value="1 KG">1 KG</option>
+
+            <option value="2 KG">2 KG</option>
+
+        </select>
+
+        <label>Quantity</label>
+
+        <input type="number" name="quantity"
+        id="quantity" min="1" max="20"
+        value="1" required>
+
+        <div class="price" id="total">
+            Estimated Total: ₹0
+        </div>
+
+        <label>Delivery Date</label>
+
+        <input type="date" name="delivery_date"
+        min="<?= date('Y-m-d') ?>" required>
+
+        <label>Delivery Address</label>
+
+        <textarea name="address"
+        placeholder="Enter delivery address"
+        required></textarea>
+
+        <button type="submit">
+            Place Cake Order
+        </button>
+
+    </form>
+
+<?php endif; ?>
+
+</div>
+
+<footer>
+
+    <p>© 2026 Sweet Cake Shop | All Rights Reserved</p>
+
+</footer>
+
+<script>
+
+// CALCULATE CAKE PRICE
+
+const cake = document.getElementById("cake");
+const size = document.getElementById("size");
+const quantity = document.getElementById("quantity");
+const total = document.getElementById("total");
+
+function calculatePrice() {
+
+    let price = Number(
+        cake.selectedOptions[0]?.dataset.price || 0
+    );
+
+    let multiplier = {
+        "0.5 KG": 1,
+        "1 KG": 1.8,
+        "2 KG": 3.4
+    };
+
+    let sizeValue = multiplier[size.value] || 0;
+    let qty = Number(quantity.value) || 0;
+
+    let amount = price * sizeValue * qty;
+
+    total.innerHTML =
+        "Estimated Total: ₹" + amount.toFixed(2);
+}
+
+cake.addEventListener("change", calculatePrice);
+size.addEventListener("change", calculatePrice);
+quantity.addEventListener("input", calculatePrice);
+
+document.getElementById("orderForm")?.addEventListener(
+    "submit", function(event) {
+
+        let qty = Number(this.quantity.value);
+
+        if (qty < 1 || qty > 20) {
+            event.preventDefault();
+            alert("Please select quantity between 1 and 20.");
+        }
+
+        if (new Date(this.delivery_date.value + "T00:00:00")
+            < new Date(new Date().toDateString())) {
+            event.preventDefault();
+            alert("Please select a valid delivery date.");
+        }
+    }
+);
+
+</script>
+
+</body>
+</html>
