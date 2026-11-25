@@ -1,0 +1,363 @@
+
+<?php
+$conn = new mysqli("localhost", "root", "", "bus_booking");
+
+if ($conn->connect_error) {
+    die("Database connection failed");
+}
+
+$message = "";
+$booking = null;
+
+// HANDLE BUS BOOKING
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+
+    $name = trim($_POST["name"] ?? "");
+    $email = trim($_POST["email"] ?? "");
+    $phone = trim($_POST["phone"] ?? "");
+    $bus_id = (int)($_POST["bus_id"] ?? 0);
+    $travel_date = $_POST["travel_date"] ?? "";
+    $seats = (int)($_POST["seats"] ?? 0);
+
+    if (
+        $name == "" ||
+        !filter_var($email, FILTER_VALIDATE_EMAIL) ||
+        !preg_match("/^[0-9]{10}$/", $phone) ||
+        $bus_id < 1 ||
+        $seats < 1 ||
+        $seats > 6 ||
+        $travel_date == ""
+    ) {
+        $message = "Please enter valid details.";
+    } elseif ($travel_date < date("Y-m-d")) {
+        $message = "Please select a valid travel date.";
+    } else {
+
+        // CHECK BUS
+        $check = $conn->prepare(
+            "SELECT * FROM buses WHERE bus_id = ?"
+        );
+        $check->bind_param("i", $bus_id);
+        $check->execute();
+
+        $bus = $check->get_result()->fetch_assoc();
+
+        if (!$bus) {
+            $message = "Invalid bus selection.";
+        } else {
+
+            // CHECK AVAILABLE SEATS
+            $available = $conn->prepare(
+                "SELECT COALESCE(SUM(seats), 0) AS booked
+                 FROM bookings
+                 WHERE bus_id = ? AND travel_date = ?"
+            );
+
+            $available->bind_param("is", $bus_id, $travel_date);
+            $available->execute();
+
+            $booked = $available->get_result()->fetch_assoc();
+
+            $remaining = $bus["total_seats"] - $booked["booked"];
+
+            if ($seats > $remaining) {
+                $message = "Only " . $remaining . " seats available.";
+            } else {
+
+                // CALCULATE FARE
+                $total = $bus["price"] * $seats;
+
+                // SAVE BOOKING
+                $stmt = $conn->prepare(
+                    "INSERT INTO bookings
+                    (customer_name, email, phone, bus_id,
+                     travel_date, seats, total_amount)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)"
+                );
+
+                $stmt->bind_param(
+                    "sssisi d",
+                    $name, $email, $phone, $bus_id,
+                    $travel_date, $seats, $total
+                );
+
+                // Use correct parameter types
+                // s=string, i=integer, d=decimal
+                if ($stmt->execute()) {
+
+                    $booking_id = $conn->insert_id;
+
+                    $booking = [
+                        "id" => $booking_id,
+                        "name" => $name,
+                        "email" => $email,
+                        "phone" => $phone,
+                        "bus" => $bus["bus_name"],
+                        "source" => $bus["source"],
+                        "destination" => $bus["destination"],
+                        "date" => $travel_date,
+                        "seats" => $seats,
+                        "total" => $total
+                    ];
+
+                    $message = "Booking Successful!";
+                } else {
+                    $message = "Booking failed. Try again.";
+                }
+            }
+        }
+    }
+}
+
+// GET BUS LIST
+$buses = $conn->query("SELECT * FROM buses");
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+<title>Bus Booking System</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f2f4f7;
+}
+
+header {
+    background: #142d4e;
+    color: white;
+    text-align: center;
+    padding: 25px;
+}
+
+nav {
+    background: #24476c;
+    padding: 15px;
+    text-align: center;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    margin: 20px;
+}
+
+.welcome {
+    text-align: center;
+    padding: 55px 15px;
+    background: #dce8f5;
+}
+
+.container {
+    width: 450px;
+    max-width: calc(100% - 30px);
+    background: white;
+    padding: 25px;
+    margin: 30px auto;
+    border-radius: 10px;
+    box-shadow: 0 2px 12px #ccc;
+}
+
+h2 {
+    text-align: center;
+    color: #142d4e;
+}
+
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+input, select {
+    width: 100%;
+    padding: 11px;
+    margin-top: 7px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    margin-top: 20px;
+    background: #142d4e;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #315b8c;
+}
+
+.message {
+    text-align: center;
+    color: #087c42;
+    font-weight: bold;
+}
+
+.error {
+    color: red;
+}
+
+.success {
+    background: #e4f7e9;
+    padding: 15px;
+    border-radius: 8px;
+}
+
+footer {
+    background: #142d4e;
+    color: white;
+    text-align: center;
+    padding: 15px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h1>SMART BUS BOOKING</h1>
+    <p>Travel Safely and Comfortably</p>
+</header>
+
+<nav>
+    <a href="index.php">Home</a>
+    <a href="#booking">Book Tickets</a>
+</nav>
+
+<section class="welcome">
+    <h2>Welcome to Smart Bus Booking</h2>
+    <p>Book your bus tickets easily and enjoy your journey.</p>
+</section>
+
+<div class="container" id="booking">
+
+<?php if ($message != ""): ?>
+    <p class="message">
+        <?= htmlspecialchars($message) ?>
+    </p>
+<?php endif; ?>
+
+<?php if ($booking): ?>
+
+    <div class="success">
+        <h2>Ticket Booking Confirmed!</h2>
+
+        <p><b>Booking ID:</b>
+        <?= $booking["id"] ?></p>
+
+        <p><b>Passenger:</b>
+        <?= htmlspecialchars($booking["name"]) ?></p>
+
+        <p><b>Email:</b>
+        <?= htmlspecialchars($booking["email"]) ?></p>
+
+        <p><b>Phone:</b>
+        <?= htmlspecialchars($booking["phone"]) ?></p>
+
+        <p><b>Bus:</b>
+        <?= htmlspecialchars($booking["bus"]) ?></p>
+
+        <p><b>From:</b>
+        <?= htmlspecialchars($booking["source"]) ?></p>
+
+        <p><b>To:</b>
+        <?= htmlspecialchars($booking["destination"]) ?></p>
+
+        <p><b>Travel Date:</b>
+        <?= htmlspecialchars($booking["date"]) ?></p>
+
+        <p><b>Seats:</b>
+        <?= $booking["seats"] ?></p>
+
+        <p><b>Total Amount:</b>
+        ₹<?= number_format($booking["total"], 2) ?></p>
+    </div>
+
+    <button onclick="window.location='index.php'">
+        Book Another Ticket
+    </button>
+
+<?php else: ?>
+
+    <h2>Book Your Bus Ticket</h2>
+
+    <form method="POST" id="bookingForm">
+
+        <label>Passenger Name</label>
+        <input type="text" name="name"
+        placeholder="Enter your name" required>
+
+        <label>Email Address</label>
+        <input type="email" name="email"
+        placeholder="Enter your email" required>
+
+        <label>Phone Number</label>
+        <input type="tel" name="phone"
+        pattern="[0-9]{10}" maxlength="10"
+        placeholder="Enter 10 digit phone number" required>
+
+        <label>Select Bus</label>
+        <select name="bus_id" required>
+            <option value="">Choose Bus</option>
+
+            <?php while ($row = $buses->fetch_assoc()): ?>
+                <option value="<?= $row["bus_id"] ?>">
+                    <?= htmlspecialchars($row["bus_name"]) ?>
+                    |
+                    <?= htmlspecialchars($row["source"]) ?>
+                    to
+                    <?= htmlspecialchars($row["destination"]) ?>
+                    | ₹<?= $row["price"] ?>
+                </option>
+            <?php endwhile; ?>
+
+        </select>
+
+        <label>Travel Date</label>
+        <input type="date" name="travel_date"
+        min="<?= date('Y-m-d') ?>" required>
+
+        <label>Number of Seats (Maximum 6)</label>
+        <input type="number" name="seats"
+        min="1" max="6" value="1" required>
+
+        <button type="submit">Confirm Booking</button>
+
+    </form>
+
+<?php endif; ?>
+
+</div>
+
+<footer>
+    <p>© 2026 Smart Bus Booking | All Rights Reserved</p>
+</footer>
+
+<script>
+document.getElementById("bookingForm")?.addEventListener(
+    "submit", function(event) {
+
+        let seats = Number(this.seats.value);
+
+        if (seats < 1 || seats > 6) {
+            event.preventDefault();
+            alert("Select between 1 and 6 seats.");
+        }
+    }
+);
+</script>
+
+</body>
+</html>
