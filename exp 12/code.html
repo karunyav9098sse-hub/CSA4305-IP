@@ -1,0 +1,268 @@
+DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Insurance Management</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<style>
+  :root{--bg:#f3f6f9;--panel:#fff;--ink:#14213d;--muted:#5c6b80;--line:#d9e1ea;--brand:#0b6e99;--brand-d:#08516f;--ok:#1b7f4b;--warn:#b7791f;--bad:#b42318}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:var(--ink);color:#fff;padding:18px 28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+  header h1{margin:0;font-size:1.3rem}
+  header button{background:transparent;color:#fff;border:1px solid #ffffff66;padding:6px 12px;border-radius:6px;cursor:pointer}
+  nav{display:flex;gap:4px;padding:0 28px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto}
+  nav button{background:none;border:none;padding:14px 16px;font-size:.95rem;cursor:pointer;color:var(--muted);border-bottom:3px solid transparent}
+  nav button.active{color:var(--brand);border-color:var(--brand);font-weight:600}
+  main{padding:24px 28px;max-width:1100px;margin:auto}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+  .stat b{display:block;font-size:1.5rem}
+  .stat span{color:var(--muted);font-size:.85rem}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;margin-bottom:18px}
+  .card h2{margin:0 0 12px;font-size:1.05rem}
+  form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end}
+  label{font-size:.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+  input,select,textarea{padding:8px;border:1px solid var(--line);border-radius:6px;font:inherit}
+  .btn{background:var(--brand);color:#fff;border:none;padding:9px 14px;border-radius:6px;cursor:pointer;font:inherit}
+  .btn:hover{background:var(--brand-d)}
+  .btn.sm{padding:4px 8px;font-size:.8rem}
+  .btn.red{background:var(--bad)}
+  .wrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:.9rem}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{background:#eef3f8;font-weight:600}
+  .tag{padding:2px 8px;border-radius:99px;font-size:.78rem;background:#e5eaf0}
+  .Active,.Approved{background:#dcf3e6;color:var(--ok)}
+  .Pending{background:#fdf0d5;color:var(--warn)}
+  .Expired,.Rejected,.Cancelled{background:#fbe0dd;color:var(--bad)}
+  textarea{width:100%;min-height:90px;font-family:Consolas,monospace}
+  .err{color:var(--bad);margin-top:8px}
+  section{display:none}section.show{display:block}
+  :focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Insurance Management</h1>
+  <button id="reset">Reset sample data</button>
+</header>
+<nav id="tabs"></nav>
+<main>
+  <section id="dashboard"></section>
+  <section id="customers"></section>
+  <section id="policies"></section>
+  <section id="claims"></section>
+  <section id="payments"></section>
+  <section id="sql"></section>
+</main>
+
+<script>
+/* ---------- Schema + sample data ---------- */
+const SCHEMA = `
+CREATE TABLE customers (customer_id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL, email TEXT UNIQUE, phone TEXT, city TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE policies (policy_id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, type TEXT NOT NULL, premium REAL NOT NULL, coverage REAL NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL, status TEXT DEFAULT 'Active', FOREIGN KEY (customer_id) REFERENCES customers(customer_id));
+CREATE TABLE claims (claim_id INTEGER PRIMARY KEY AUTOINCREMENT, policy_id INTEGER NOT NULL, amount REAL NOT NULL, reason TEXT, claim_date TEXT DEFAULT CURRENT_DATE, status TEXT DEFAULT 'Pending', FOREIGN KEY (policy_id) REFERENCES policies(policy_id));
+CREATE TABLE payments (payment_id INTEGER PRIMARY KEY AUTOINCREMENT, policy_id INTEGER NOT NULL, amount REAL NOT NULL, paid_on TEXT DEFAULT CURRENT_DATE, method TEXT DEFAULT 'UPI', FOREIGN KEY (policy_id) REFERENCES policies(policy_id));
+INSERT INTO customers (full_name,email,phone,city) VALUES ('Arun Kumar','arun@example.com','9876543210','Chennai'),('Priya Raj','priya@example.com','9123456780','Avadi'),('Karthik S','karthik@example.com','9988776655','Coimbatore');
+INSERT INTO policies (customer_id,type,premium,coverage,start_date,end_date,status) VALUES (1,'Health',12000,500000,'2026-01-01','2027-01-01','Active'),(1,'Vehicle',8500,300000,'2026-03-15','2027-03-15','Active'),(2,'Life',25000,2000000,'2025-06-01','2035-06-01','Active'),(3,'Home',6000,1000000,'2024-02-01','2025-02-01','Expired');
+INSERT INTO claims (policy_id,amount,reason,claim_date,status) VALUES (1,45000,'Hospitalisation','2026-08-10','Approved'),(2,18000,'Accident repair','2026-09-21','Pending'),(4,70000,'Water damage','2024-11-02','Rejected');
+INSERT INTO payments (policy_id,amount,paid_on,method) VALUES (1,12000,'2026-01-01','UPI'),(2,8500,'2026-03-15','Card'),(3,25000,'2025-06-01','NetBanking');
+`;
+
+let db, SQL;
+const KEY = "insurance_db_v1";
+const $ = id => document.getElementById(id);
+const inr = n => "₹" + Number(n).toLocaleString("en-IN");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function rows(sql, params = []) {
+  const stmt = db.prepare(sql); stmt.bind(params);
+  const out = [];
+  while (stmt.step()) out.push(stmt.getAsObject());
+  stmt.free(); return out;
+}
+function run(sql, params = []) { db.run(sql, params); save(); }
+function save() {
+  try {
+    const bytes = db.export(); let bin = "";
+    bytes.forEach(b => bin += String.fromCharCode(b));
+    localStorage.setItem(KEY, btoa(bin));
+  } catch (e) { console.warn("Could not save", e); }
+}
+function load() {
+  try {
+    const s = localStorage.getItem(KEY); if (!s) return null;
+    const bin = atob(s), arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new SQL.Database(arr);
+  } catch { return null; }
+}
+function table(cols, data, actions) {
+  if (!data.length) return "<p>No records yet. Add one using the form above.</p>";
+  return `<div class="wrap"><table><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}${actions ? "<th></th>" : ""}</tr></thead><tbody>` +
+    data.map(r => `<tr>${cols.map(c => {
+      const v = r[c];
+      return c === "status" ? `<td><span class="tag ${esc(v)}">${esc(v)}</span></td>` : `<td>${esc(v)}</td>`;
+    }).join("")}${actions ? `<td>${actions(r)}</td>` : ""}</tr>`).join("") + "</tbody></table></div>";
+}
+
+/* ---------- Views ---------- */
+const TABS = ["dashboard","customers","policies","claims","payments","sql"];
+const LABEL = {dashboard:"Dashboard",customers:"Customers",policies:"Policies",claims:"Claims",payments:"Payments",sql:"SQL console"};
+
+function renderDashboard() {
+  const one = q => Object.values(rows(q)[0])[0];
+  $("dashboard").innerHTML = `
+  <div class="stats">
+    <div class="stat"><b>${one("SELECT COUNT(*) FROM customers")}</b><span>Customers</span></div>
+    <div class="stat"><b>${one("SELECT COUNT(*) FROM policies WHERE status='Active'")}</b><span>Active policies</span></div>
+    <div class="stat"><b>${inr(one("SELECT IFNULL(SUM(amount),0) FROM payments"))}</b><span>Premiums collected</span></div>
+    <div class="stat"><b>${one("SELECT COUNT(*) FROM claims WHERE status='Pending'")}</b><span>Pending claims</span></div>
+    <div class="stat"><b>${inr(one("SELECT IFNULL(SUM(amount),0) FROM claims WHERE status='Approved'"))}</b><span>Claims paid out</span></div>
+  </div>
+  <div class="card"><h2>Premium by policy type</h2>
+  ${table(["type","policies","total_premium","total_coverage"], rows("SELECT type, COUNT(*) AS policies, SUM(premium) AS total_premium, SUM(coverage) AS total_coverage FROM policies GROUP BY type"))}</div>
+  <div class="card"><h2>Policies ending within 90 days</h2>
+  ${table(["policy_id","full_name","type","end_date"], rows("SELECT p.policy_id, c.full_name, p.type, p.end_date FROM policies p JOIN customers c ON c.customer_id=p.customer_id WHERE p.status='Active' AND date(p.end_date) BETWEEN date('now') AND date('now','+90 day') ORDER BY p.end_date"))}</div>`;
+}
+
+function renderCustomers() {
+  $("customers").innerHTML = `
+  <div class="card"><h2>Add customer</h2>
+  <form id="fCust">
+    <label>Full name<input name="n" required></label>
+    <label>Email<input name="e" type="email"></label>
+    <label>Phone<input name="p"></label>
+    <label>City<input name="c"></label>
+    <button class="btn">Add customer</button>
+  </form><div class="err" id="eCust"></div></div>
+  <div class="card"><h2>All customers</h2>
+  ${table(["customer_id","full_name","email","phone","city"], rows("SELECT customer_id,full_name,email,phone,city FROM customers ORDER BY customer_id DESC"),
+    r => `<button class="btn sm red" data-del="customers:${r.customer_id}">Delete</button>`)}</div>`;
+  $("fCust").onsubmit = e => { e.preventDefault(); const f = new FormData(e.target);
+    try { run("INSERT INTO customers (full_name,email,phone,city) VALUES (?,?,?,?)", [f.get("n"), f.get("e") || null, f.get("p"), f.get("c")]); refresh(); }
+    catch (x) { $("eCust").textContent = "Could not add customer: " + x.message; } };
+}
+
+function renderPolicies() {
+  const custs = rows("SELECT customer_id, full_name FROM customers");
+  $("policies").innerHTML = `
+  <div class="card"><h2>Issue policy</h2>
+  <form id="fPol">
+    <label>Customer<select name="c" required>${custs.map(c => `<option value="${c.customer_id}">${esc(c.full_name)}</option>`).join("")}</select></label>
+    <label>Type<select name="t"><option>Health</option><option>Life</option><option>Vehicle</option><option>Home</option></select></label>
+    <label>Premium (₹)<input name="p" type="number" min="1" required></label>
+    <label>Coverage (₹)<input name="v" type="number" min="1" required></label>
+    <label>Start date<input name="s" type="date" required></label>
+    <label>End date<input name="e" type="date" required></label>
+    <button class="btn">Issue policy</button>
+  </form><div class="err" id="ePol"></div></div>
+  <div class="card"><h2>All policies</h2>
+  ${table(["policy_id","full_name","type","premium","coverage","start_date","end_date","status"],
+    rows("SELECT p.policy_id, c.full_name, p.type, p.premium, p.coverage, p.start_date, p.end_date, p.status FROM policies p JOIN customers c ON c.customer_id=p.customer_id ORDER BY p.policy_id DESC"),
+    r => r.status === "Active" ? `<button class="btn sm red" data-cancel="${r.policy_id}">Cancel</button>` : "")}</div>`;
+  $("fPol").onsubmit = e => { e.preventDefault(); const f = new FormData(e.target);
+    if (f.get("e") <= f.get("s")) { $("ePol").textContent = "End date must be after the start date."; return; }
+    run("INSERT INTO policies (customer_id,type,premium,coverage,start_date,end_date) VALUES (?,?,?,?,?,?)", [f.get("c"), f.get("t"), f.get("p"), f.get("v"), f.get("s"), f.get("e")]); refresh(); };
+}
+
+function renderClaims() {
+  const pols = rows("SELECT p.policy_id, c.full_name, p.type FROM policies p JOIN customers c ON c.customer_id=p.customer_id WHERE p.status='Active'");
+  $("claims").innerHTML = `
+  <div class="card"><h2>File claim</h2>
+  <form id="fClaim">
+    <label>Policy<select name="p" required>${pols.map(p => `<option value="${p.policy_id}">#${p.policy_id} · ${esc(p.full_name)} (${p.type})</option>`).join("")}</select></label>
+    <label>Amount (₹)<input name="a" type="number" min="1" required></label>
+    <label>Reason<input name="r" required></label>
+    <label>Date<input name="d" type="date" required></label>
+    <button class="btn">File claim</button>
+  </form><div class="err" id="eClaim"></div></div>
+  <div class="card"><h2>All claims</h2>
+  ${table(["claim_id","policy_id","full_name","amount","reason","claim_date","status"],
+    rows("SELECT cl.claim_id, cl.policy_id, c.full_name, cl.amount, cl.reason, cl.claim_date, cl.status FROM claims cl JOIN policies p ON p.policy_id=cl.policy_id JOIN customers c ON c.customer_id=p.customer_id ORDER BY cl.claim_id DESC"),
+    r => r.status === "Pending" ? `<button class="btn sm" data-claim="Approved:${r.claim_id}">Approve</button> <button class="btn sm red" data-claim="Rejected:${r.claim_id}">Reject</button>` : "")}</div>`;
+  $("fClaim").onsubmit = e => { e.preventDefault(); const f = new FormData(e.target);
+    const cov = rows("SELECT coverage FROM policies WHERE policy_id=?", [f.get("p")])[0].coverage;
+    if (Number(f.get("a")) > cov) { $("eClaim").textContent = "Claim amount is higher than the policy coverage of " + inr(cov) + "."; return; }
+    run("INSERT INTO claims (policy_id,amount,reason,claim_date) VALUES (?,?,?,?)", [f.get("p"), f.get("a"), f.get("r"), f.get("d")]); refresh(); };
+}
+
+function renderPayments() {
+  const pols = rows("SELECT p.policy_id, c.full_name, p.type FROM policies p JOIN customers c ON c.customer_id=p.customer_id WHERE p.status='Active'");
+  $("payments").innerHTML = `
+  <div class="card"><h2>Record premium payment</h2>
+  <form id="fPay">
+    <label>Policy<select name="p" required>${pols.map(p => `<option value="${p.policy_id}">#${p.policy_id} · ${esc(p.full_name)} (${p.type})</option>`).join("")}</select></label>
+    <label>Amount (₹)<input name="a" type="number" min="1" required></label>
+    <label>Method<select name="m"><option>UPI</option><option>Card</option><option>NetBanking</option><option>Cash</option></select></label>
+    <label>Paid on<input name="d" type="date" required></label>
+    <button class="btn">Record payment</button>
+  </form></div>
+  <div class="card"><h2>Payment history</h2>
+  ${table(["payment_id","policy_id","full_name","amount","method","paid_on"],
+    rows("SELECT pay.payment_id, pay.policy_id, c.full_name, pay.amount, pay.method, pay.paid_on FROM payments pay JOIN policies p ON p.policy_id=pay.policy_id JOIN customers c ON c.customer_id=p.customer_id ORDER BY pay.payment_id DESC"))}</div>`;
+  $("fPay").onsubmit = e => { e.preventDefault(); const f = new FormData(e.target);
+    run("INSERT INTO payments (policy_id,amount,paid_on,method) VALUES (?,?,?,?)", [f.get("p"), f.get("a"), f.get("d"), f.get("m")]); refresh(); };
+}
+
+function renderSql() {
+  $("sql").innerHTML = `
+  <div class="card"><h2>Run your own SQL</h2>
+  <textarea id="q">SELECT c.full_name, COUNT(p.policy_id) AS policies, SUM(p.premium) AS total_premium
+FROM customers c LEFT JOIN policies p ON p.customer_id = c.customer_id
+GROUP BY c.customer_id;</textarea>
+  <p><button class="btn" id="runq">Run query</button></p>
+  <div class="err" id="eq"></div><div id="qout"></div></div>`;
+  $("runq").onclick = () => {
+    $("eq").textContent = ""; $("qout").innerHTML = "";
+    try {
+      const res = db.exec($("q").value);
+      if (!res.length) { $("qout").innerHTML = "<p>Query ran. No rows returned.</p>"; save(); return; }
+      res.forEach(r => $("qout").innerHTML += table(r.columns, r.values.map(v => Object.fromEntries(r.columns.map((c, i) => [c, v[i]])))));
+      save();
+    } catch (x) { $("eq").textContent = "SQL error: " + x.message; }
+  };
+}
+
+/* ---------- App wiring ---------- */
+const RENDER = {dashboard:renderDashboard,customers:renderCustomers,policies:renderPolicies,claims:renderClaims,payments:renderPayments,sql:renderSql};
+let current = "dashboard";
+
+function show(tab) {
+  current = tab;
+  TABS.forEach(t => $(t).classList.toggle("show", t === tab));
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  RENDER[tab]();
+}
+function refresh() { show(current); }
+
+document.addEventListener("click", e => {
+  const d = e.target.dataset;
+  if (d.del) { const id = d.del.split(":")[1];
+    try { run("DELETE FROM customers WHERE customer_id=?", [id]); refresh(); }
+    catch (x) { alert("Could not delete: " + x.message); } }
+  if (d.cancel) { run("UPDATE policies SET status='Cancelled' WHERE policy_id=?", [d.cancel]); refresh(); }
+  if (d.claim) { const [s, id] = d.claim.split(":"); run("UPDATE claims SET status=? WHERE claim_id=?", [s, id]); refresh(); }
+});
+
+$("tabs").innerHTML = TABS.map(t => `<button data-tab="${t}">${LABEL[t]}</button>`).join("");
+$("tabs").onclick = e => { if (e.target.dataset.tab) show(e.target.dataset.tab); };
+$("reset").onclick = () => {
+  if (!confirm("This replaces all data with the sample data. Continue?")) return;
+  db = new SQL.Database(); db.run("PRAGMA foreign_keys = ON;"); db.run(SCHEMA); save(); refresh();
+};
+
+initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` }).then(S => {
+  SQL = S;
+  db = load();
+  if (!db) { db = new SQL.Database(); db.run(SCHEMA); save(); }
+  db.run("PRAGMA foreign_keys = ON;");
+  show("dashboard");
+}).catch(() => {
+  document.body.insertAdjacentHTML("beforeend", "<p class='err' style='padding:20px'>Could not load the SQL engine. Check your internet connection and reload.</p>");
+});
+</script>
+</body>
+</html>
