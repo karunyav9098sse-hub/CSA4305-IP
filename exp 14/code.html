@@ -1,0 +1,344 @@
+DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Second-hand Marketplace</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<style>
+  :root{--bg:#f6f4ee;--panel:#fff;--ink:#22302f;--muted:#667572;--line:#e1ddd0;--brand:#0f5c5c;--brand-d:#0a4343;--accent:#d98e1f;--ok:#1f7a4a;--warn:#a96a0c;--bad:#b42318}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:var(--brand);color:#fff;padding:18px 28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+  header h1{margin:0;font-size:1.3rem}
+  header button{background:transparent;color:#fff;border:1px solid #ffffff77;padding:6px 12px;border-radius:6px;cursor:pointer}
+  nav{display:flex;gap:4px;padding:0 28px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto}
+  nav button{background:none;border:none;padding:14px 16px;font-size:.95rem;cursor:pointer;color:var(--muted);border-bottom:3px solid transparent;white-space:nowrap}
+  nav button.active{color:var(--brand);border-color:var(--accent);font-weight:600}
+  main{padding:24px 28px;max-width:1150px;margin:auto}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+  .stat b{display:block;font-size:1.5rem}
+  .stat span{color:var(--muted);font-size:.85rem}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;margin-bottom:18px}
+  .card h2{margin:0 0 12px;font-size:1.05rem}
+  form,.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end}
+  .full{grid-column:1/-1}
+  label{font-size:.8rem;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+  input,select,textarea{padding:8px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff;color:var(--ink)}
+  .btn{background:var(--brand);color:#fff;border:none;padding:9px 14px;border-radius:6px;cursor:pointer;font:inherit}
+  .btn:hover{background:var(--brand-d)}
+  .btn.alt{background:var(--ok)}
+  .btn.sm{padding:4px 8px;font-size:.8rem}
+  .btn.red{background:var(--bad)}
+  .listings{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+  .item{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:6px}
+  .item h3{margin:0;font-size:1rem}
+  .price{font-size:1.25rem;font-weight:700;color:var(--brand)}
+  .meta{color:var(--muted);font-size:.82rem;margin:0}
+  .item p{margin:0;font-size:.9rem}
+  .offerRow{display:grid;grid-template-columns:1fr 90px;gap:6px;margin-top:6px}
+  .offerRow button{grid-column:1/-1}
+  .wrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:.9rem}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{background:#f1eee3;font-weight:600}
+  .tag{padding:2px 8px;border-radius:99px;font-size:.78rem;background:#eee}
+  .Available,.Accepted{background:#dcf3e6;color:var(--ok)}
+  .Pending{background:#fdf0d5;color:var(--warn)}
+  .Sold{background:#e3ecfb;color:#2b5bb5}
+  .Rejected,.Removed{background:#fbe0dd;color:var(--bad)}
+  textarea{width:100%;min-height:90px;font-family:Consolas,monospace}
+  .err{color:var(--bad);font-size:.85rem;min-height:1em}
+  .msg{color:var(--ok);font-size:.85rem}
+  section{display:none}section.show{display:block}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Second-hand Marketplace</h1>
+  <button id="reset">Reset sample data</button>
+</header>
+<nav id="tabs"></nav>
+<main>
+  <section id="dashboard"></section>
+  <section id="browse"></section>
+  <section id="sell"></section>
+  <section id="offers"></section>
+  <section id="users"></section>
+  <section id="sql"></section>
+</main>
+
+<script>
+/* ---------- Schema + sample data (same as schema.sql) ---------- */
+const SCHEMA = `
+CREATE TABLE users (user_id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL, email TEXT UNIQUE, phone TEXT, city TEXT);
+CREATE TABLE listings (listing_id INTEGER PRIMARY KEY AUTOINCREMENT, seller_id INTEGER NOT NULL, title TEXT NOT NULL, category TEXT NOT NULL, item_condition TEXT NOT NULL, price REAL NOT NULL CHECK (price > 0), description TEXT, city TEXT, status TEXT DEFAULT 'Available', posted_on TEXT DEFAULT CURRENT_DATE, FOREIGN KEY (seller_id) REFERENCES users(user_id));
+CREATE TABLE offers (offer_id INTEGER PRIMARY KEY AUTOINCREMENT, listing_id INTEGER NOT NULL, buyer_id INTEGER NOT NULL, amount REAL NOT NULL CHECK (amount > 0), status TEXT DEFAULT 'Pending', offered_on TEXT DEFAULT CURRENT_DATE, FOREIGN KEY (listing_id) REFERENCES listings(listing_id), FOREIGN KEY (buyer_id) REFERENCES users(user_id));
+INSERT INTO users (full_name,email,phone,city) VALUES ('Suresh Babu','suresh@example.com','9840012345','Chennai'),('Lakshmi Iyer','lakshmi@example.com','9444023456','Avadi'),('Imran Khan','imran@example.com','9791034567','Coimbatore'),('Anita Joseph','anita@example.com','9884045678','Madurai');
+INSERT INTO listings (seller_id,title,category,item_condition,price,description,city,status,posted_on) VALUES (1,'Samsung Galaxy M31 (6GB/128GB)','Electronics','Good',9500,'Used for 1 year, box and charger included.','Chennai','Available','2026-11-18'),(2,'Wooden study table with drawer','Furniture','Good',2800,'Solid wood, 4 ft wide. Pickup only.','Avadi','Available','2026-11-20'),(3,'Hero Splendor Plus 2019','Vehicles','Fair',32000,'45,000 km driven, all papers clear.','Coimbatore','Available','2026-11-15'),(4,'Engineering Mathematics textbook set','Books','Like New',700,'3 books, no markings.','Madurai','Available','2026-11-22'),(1,'Cosco cricket bat','Sports','Good',650,'English willow, light use.','Chennai','Sold','2026-11-05'),(2,'Prestige pressure cooker 5L','Home & Kitchen','Like New',900,'Used twice.','Avadi','Available','2026-11-23');
+INSERT INTO offers (listing_id,buyer_id,amount,status,offered_on) VALUES (1,2,8800,'Pending','2026-11-21'),(1,3,9000,'Pending','2026-11-22'),(5,4,600,'Accepted','2026-11-07'),(3,1,30000,'Pending','2026-11-24');
+`;
+
+const CATEGORIES = ["Electronics","Furniture","Clothing","Books","Vehicles","Sports","Home & Kitchen","Other"];
+const CONDITIONS = ["Like New","Good","Fair","For Parts"];
+let db, SQL;
+const KEY = "marketplace_db_v1";
+const $ = id => document.getElementById(id);
+const inr = n => "₹" + Number(n).toLocaleString("en-IN");
+const today = () => new Date().toISOString().slice(0, 10);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function rows(sql, params = []) {
+  const stmt = db.prepare(sql); stmt.bind(params);
+  const out = [];
+  while (stmt.step()) out.push(stmt.getAsObject());
+  stmt.free(); return out;
+}
+function run(sql, params = []) { db.run(sql, params); save(); }
+function save() {
+  try {
+    const bytes = db.export(); let bin = "";
+    bytes.forEach(b => bin += String.fromCharCode(b));
+    localStorage.setItem(KEY, btoa(bin));
+  } catch (e) { console.warn("Could not save", e); }
+}
+function load() {
+  try {
+    const s = localStorage.getItem(KEY); if (!s) return null;
+    const bin = atob(s), arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new SQL.Database(arr);
+  } catch { return null; }
+}
+function table(cols, data, actions) {
+  if (!data.length) return "<p>No records found.</p>";
+  return `<div class="wrap"><table><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}${actions ? "<th></th>" : ""}</tr></thead><tbody>` +
+    data.map(r => `<tr>${cols.map(c => {
+      const v = r[c];
+      if (c === "status") return `<td><span class="tag ${esc(v)}">${esc(v)}</span></td>`;
+      if (["price","amount","asking","total_sales","avg_price"].includes(c)) return `<td>${inr(v)}</td>`;
+      return `<td>${esc(v)}</td>`;
+    }).join("")}${actions ? `<td>${actions(r)}</td>` : ""}</tr>`).join("") + "</tbody></table></div>";
+}
+
+/* ---------- Dashboard ---------- */
+function renderDashboard() {
+  const one = q => Object.values(rows(q)[0])[0];
+  $("dashboard").innerHTML = `
+  <div class="stats">
+    <div class="stat"><b>${one("SELECT COUNT(*) FROM listings WHERE status='Available'")}</b><span>Items for sale</span></div>
+    <div class="stat"><b>${one("SELECT COUNT(*) FROM listings WHERE status='Sold'")}</b><span>Items sold</span></div>
+    <div class="stat"><b>${inr(one("SELECT IFNULL(SUM(amount),0) FROM offers WHERE status='Accepted'"))}</b><span>Total sales value</span></div>
+    <div class="stat"><b>${one("SELECT COUNT(*) FROM offers WHERE status='Pending'")}</b><span>Offers waiting</span></div>
+    <div class="stat"><b>${one("SELECT COUNT(*) FROM users")}</b><span>Members</span></div>
+  </div>
+  <div class="card"><h2>Items for sale by category</h2>
+  ${table(["category","items","avg_price"], rows("SELECT category, COUNT(*) AS items, ROUND(AVG(price)) AS avg_price FROM listings WHERE status='Available' GROUP BY category ORDER BY items DESC"))}</div>
+  <div class="card"><h2>Recent sales</h2>
+  ${table(["title","asking","amount","buyer","seller"], rows("SELECT l.title, l.price AS asking, o.amount, b.full_name AS buyer, s.full_name AS seller FROM offers o JOIN listings l ON l.listing_id=o.listing_id JOIN users b ON b.user_id=o.buyer_id JOIN users s ON s.user_id=l.seller_id WHERE o.status='Accepted' ORDER BY o.offer_id DESC LIMIT 5"))}</div>
+  <div class="card"><h2>Top sellers</h2>
+  ${table(["full_name","items_sold","total_sales"], rows("SELECT u.full_name, COUNT(*) AS items_sold, SUM(o.amount) AS total_sales FROM offers o JOIN listings l ON l.listing_id=o.listing_id JOIN users u ON u.user_id=l.seller_id WHERE o.status='Accepted' GROUP BY u.user_id ORDER BY total_sales DESC"))}</div>`;
+}
+
+/* ---------- Browse ---------- */
+const filters = { q: "", cat: "", cond: "", max: "", sort: "new" };
+
+function renderBrowse() {
+  $("browse").innerHTML = `
+  <div class="card"><h2>Find something</h2>
+  <div class="filters">
+    <label>Search<input id="fQ" placeholder="Phone, table, bike..." value="${esc(filters.q)}"></label>
+    <label>Category<select id="fCat"><option value="">All categories</option>${CATEGORIES.map(c => `<option ${filters.cat === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+    <label>Condition<select id="fCond"><option value="">Any condition</option>${CONDITIONS.map(c => `<option ${filters.cond === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+    <label>Max price (₹)<input id="fMax" type="number" min="1" value="${esc(filters.max)}"></label>
+    <label>Sort by<select id="fSort">
+      <option value="new" ${filters.sort === "new" ? "selected" : ""}>Newest first</option>
+      <option value="low" ${filters.sort === "low" ? "selected" : ""}>Price: low to high</option>
+      <option value="high" ${filters.sort === "high" ? "selected" : ""}>Price: high to low</option>
+    </select></label>
+  </div></div>
+  <div id="results"></div>`;
+  const bind = (id, key) => $(id).oninput = e => { filters[key] = e.target.value; drawResults(); };
+  bind("fQ", "q"); bind("fCat", "cat"); bind("fCond", "cond"); bind("fMax", "max"); bind("fSort", "sort");
+  drawResults();
+}
+
+function drawResults() {
+  let sql = `SELECT l.listing_id, l.seller_id, l.title, l.category, l.item_condition, l.price, l.description, l.city, l.posted_on, u.full_name AS seller,
+             (SELECT COUNT(*) FROM offers o WHERE o.listing_id=l.listing_id AND o.status='Pending') AS pending_offers
+             FROM listings l JOIN users u ON u.user_id=l.seller_id WHERE l.status='Available'`;
+  const p = [];
+  if (filters.q.trim()) { sql += " AND (l.title LIKE ? OR l.description LIKE ?)"; p.push(`%${filters.q.trim()}%`, `%${filters.q.trim()}%`); }
+  if (filters.cat)  { sql += " AND l.category = ?"; p.push(filters.cat); }
+  if (filters.cond) { sql += " AND l.item_condition = ?"; p.push(filters.cond); }
+  if (filters.max)  { sql += " AND l.price <= ?"; p.push(Number(filters.max)); }
+  sql += filters.sort === "low" ? " ORDER BY l.price ASC" : filters.sort === "high" ? " ORDER BY l.price DESC" : " ORDER BY l.posted_on DESC, l.listing_id DESC";
+
+  const data = rows(sql, p);
+  const users = rows("SELECT user_id, full_name FROM users ORDER BY full_name");
+  if (!data.length) { $("results").innerHTML = "<div class='card'>No items match your search. Try a different word or clear a filter.</div>"; return; }
+  $("results").innerHTML = `<div class="listings">` + data.map(l => `
+    <div class="item" data-seller="${l.seller_id}">
+      <h3>${esc(l.title)}</h3>
+      <div class="price">${inr(l.price)}</div>
+      <p class="meta">${esc(l.category)} · ${esc(l.item_condition)} · ${esc(l.city)}</p>
+      <p>${esc(l.description)}</p>
+      <p class="meta">Sold by ${esc(l.seller)} · posted ${esc(l.posted_on)} · ${l.pending_offers} offer(s) pending</p>
+      <div class="offerRow">
+        <select class="buyer" aria-label="Offer as">${users.map(u => `<option value="${u.user_id}">${esc(u.full_name)}</option>`).join("")}</select>
+        <input class="amt" type="number" min="1" placeholder="Offer ₹" aria-label="Offer amount">
+        <button class="btn sm" data-offer="${l.listing_id}">Make offer</button>
+      </div>
+      <div class="err"></div><div class="msg"></div>
+    </div>`).join("") + `</div>`;
+}
+
+/* ---------- Sell ---------- */
+function renderSell() {
+  const users = rows("SELECT user_id, full_name FROM users ORDER BY full_name");
+  $("sell").innerHTML = `
+  <div class="card"><h2>List an item</h2>
+  <form id="fSell">
+    <label>Seller<select name="s" required>${users.map(u => `<option value="${u.user_id}">${esc(u.full_name)}</option>`).join("")}</select></label>
+    <label class="full">Title<input name="t" required maxlength="80"></label>
+    <label>Category<select name="c">${CATEGORIES.map(c => `<option>${c}</option>`).join("")}</select></label>
+    <label>Condition<select name="k">${CONDITIONS.map(c => `<option>${c}</option>`).join("")}</select></label>
+    <label>Asking price (₹)<input name="p" type="number" min="1" required></label>
+    <label>City<input name="y" required></label>
+    <label class="full">Description<input name="d" placeholder="Age, defects, what's included"></label>
+    <button class="btn">Post listing</button>
+  </form><div class="err" id="eSell"></div></div>
+  <div class="card"><h2>All listings</h2>
+  ${table(["listing_id","title","category","item_condition","price","seller","status","posted_on"],
+    rows("SELECT l.listing_id, l.title, l.category, l.item_condition, l.price, u.full_name AS seller, l.status, l.posted_on FROM listings l JOIN users u ON u.user_id=l.seller_id ORDER BY l.listing_id DESC"),
+    r => r.status === "Available" ? `<button class="btn sm red" data-remove="${r.listing_id}">Remove</button>` : "")}</div>`;
+  $("fSell").onsubmit = e => { e.preventDefault(); const f = new FormData(e.target);
+    try { run("INSERT INTO listings (seller_id,title,category,item_condition,price,description,city,posted_on) VALUES (?,?,?,?,?,?,?,?)",
+      [f.get("s"), f.get("t"), f.get("c"), f.get("k"), f.get("p"), f.get("d"), f.get("y"), today()]); refresh(); }
+    catch (x) { $("eSell").textContent = "Could not post listing: " + x.message; } };
+}
+
+/* ---------- Offers ---------- */
+function renderOffers() {
+  $("offers").innerHTML = `
+  <div class="card"><h2>Offers</h2>
+  ${table(["offer_id","title","asking","amount","buyer","seller","offered_on","status"],
+    rows("SELECT o.offer_id, l.title, l.price AS asking, o.amount, b.full_name AS buyer, s.full_name AS seller, o.offered_on, o.status FROM offers o JOIN listings l ON l.listing_id=o.listing_id JOIN users b ON b.user_id=o.buyer_id JOIN users s ON s.user_id=l.seller_id ORDER BY o.offer_id DESC"),
+    r => r.status === "Pending" ? `<button class="btn sm alt" data-accept="${r.offer_id}">Accept</button> <button class="btn sm red" data-reject="${r.offer_id}">Reject</button>` : "")}
+  <p class="meta">Accepting an offer marks the item as sold and rejects the other pending offers on it.</p></div>`;
+}
+
+/* ---------- Members ---------- */
+function renderUsers() {
+  $("users").innerHTML = `
+  <div class="card"><h2>Add member</h2>
+  <form id="fUser">
+    <label>Full name<input name="n" required></label>
+    <label>Email<input name="e" type="email"></label>
+    <label>Phone<input name="p"></label>
+    <label>City<input name="c"></label>
+    <button class="btn">Add member</button>
+  </form><div class="err" id="eUser"></div></div>
+  <div class="card"><h2>All members</h2>
+  ${table(["user_id","full_name","email","phone","city"], rows("SELECT user_id,full_name,email,phone,city FROM users ORDER BY user_id DESC"),
+    r => `<button class="btn sm red" data-deluser="${r.user_id}">Delete</button>`)}</div>`;
+  $("fUser").onsubmit = e => { e.preventDefault(); const f = new FormData(e.target);
+    try { run("INSERT INTO users (full_name,email,phone,city) VALUES (?,?,?,?)", [f.get("n"), f.get("e") || null, f.get("p"), f.get("c")]); refresh(); }
+    catch (x) { $("eUser").textContent = "Could not add member: " + x.message; } };
+}
+
+/* ---------- SQL console ---------- */
+function renderSql() {
+  $("sql").innerHTML = `
+  <div class="card"><h2>Run your own SQL</h2>
+  <textarea id="q">SELECT u.full_name, COUNT(l.listing_id) AS listings, SUM(l.price) AS total_value
+FROM users u LEFT JOIN listings l ON l.seller_id = u.user_id AND l.status = 'Available'
+GROUP BY u.user_id;</textarea>
+  <p><button class="btn" id="runq">Run query</button></p>
+  <div class="err" id="eq"></div><div id="qout"></div></div>`;
+  $("runq").onclick = () => {
+    $("eq").textContent = ""; $("qout").innerHTML = "";
+    try {
+      const res = db.exec($("q").value);
+      if (!res.length) { $("qout").innerHTML = "<p>Query ran. No rows returned.</p>"; save(); return; }
+      res.forEach(r => $("qout").innerHTML += table(r.columns, r.values.map(v => Object.fromEntries(r.columns.map((c, i) => [c, v[i]])))));
+      save();
+    } catch (x) { $("eq").textContent = "SQL error: " + x.message; }
+  };
+}
+
+/* ---------- App wiring ---------- */
+const TABS = ["dashboard","browse","sell","offers","users","sql"];
+const LABEL = {dashboard:"Dashboard",browse:"Browse items",sell:"Sell an item",offers:"Offers",users:"Members",sql:"SQL console"};
+const RENDER = {dashboard:renderDashboard,browse:renderBrowse,sell:renderSell,offers:renderOffers,users:renderUsers,sql:renderSql};
+let current = "browse";
+
+function show(tab) {
+  current = tab;
+  TABS.forEach(t => $(t).classList.toggle("show", t === tab));
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  RENDER[tab]();
+}
+function refresh() { show(current); }
+
+document.addEventListener("click", e => {
+  const d = e.target.dataset;
+  try {
+    if (d.offer) {
+      const item = e.target.closest(".item");
+      const err = item.querySelector(".err"), msg = item.querySelector(".msg");
+      err.textContent = ""; msg.textContent = "";
+      const buyer = item.querySelector(".buyer").value;
+      const amount = Number(item.querySelector(".amt").value);
+      if (!buyer) { err.textContent = "Add a member first, then make an offer."; return; }
+      if (buyer === item.dataset.seller) { err.textContent = "You can't make an offer on your own item."; return; }
+      if (!amount || amount < 1) { err.textContent = "Enter an offer amount."; return; }
+      const live = rows("SELECT status FROM listings WHERE listing_id=?", [d.offer])[0];
+      if (!live || live.status !== "Available") { err.textContent = "This item is no longer available."; return; }
+      run("INSERT INTO offers (listing_id, buyer_id, amount, offered_on) VALUES (?,?,?,?)", [d.offer, buyer, amount, today()]);
+      msg.textContent = "Offer of " + inr(amount) + " sent to the seller.";
+      item.querySelector(".amt").value = "";
+    }
+    if (d.accept) {
+      const o = rows("SELECT o.listing_id, l.status FROM offers o JOIN listings l ON l.listing_id=o.listing_id WHERE o.offer_id=?", [d.accept])[0];
+      if (!o || o.status !== "Available") { alert("This item is no longer available."); return; }
+      db.run("BEGIN");
+      db.run("UPDATE offers SET status='Accepted' WHERE offer_id=?", [d.accept]);
+      db.run("UPDATE listings SET status='Sold' WHERE listing_id=?", [o.listing_id]);
+      db.run("UPDATE offers SET status='Rejected' WHERE listing_id=? AND offer_id<>? AND status='Pending'", [o.listing_id, d.accept]);
+      db.run("COMMIT"); save(); refresh();
+    }
+    if (d.reject) { run("UPDATE offers SET status='Rejected' WHERE offer_id=?", [d.reject]); refresh(); }
+    if (d.remove) {
+      if (!confirm("Remove this listing? Pending offers on it will be rejected.")) return;
+      db.run("UPDATE offers SET status='Rejected' WHERE listing_id=? AND status='Pending'", [d.remove]);
+      run("UPDATE listings SET status='Removed' WHERE listing_id=?", [d.remove]); refresh();
+    }
+    if (d.deluser) { run("DELETE FROM users WHERE user_id=?", [d.deluser]); refresh(); }
+  } catch (x) {
+    try { db.run("ROLLBACK"); } catch {}
+    alert("Could not complete that action: " + x.message + "\n(Members who have listings or offers cannot be deleted.)");
+  }
+});
+
+$("tabs").innerHTML = TABS.map(t => `<button data-tab="${t}">${LABEL[t]}</button>`).join("");
+$("tabs").onclick = e => { if (e.target.dataset.tab) show(e.target.dataset.tab); };
+$("reset").onclick = () => {
+  if (!confirm("This replaces all data with the sample data. Continue?")) return;
+  db = new SQL.Database(); db.run("PRAGMA foreign_keys = ON;"); db.run(SCHEMA); save(); refresh();
+};
+
+initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` }).then(S => {
+  SQL = S;
+  db = load();
+  if (!db) { db = new SQL.Database(); db.run(SCHEMA); save(); }
+  db.run("PRAGMA foreign_keys = ON;");
+  show("browse");
+}).catch(() => {
+  document.body.insertAdjacentHTML("beforeend", "<p class='err' style='padding:20px'>Could not load the SQL engine. Check your internet connection and reload.</p>");
+});
+</script>
+</body>
+</html>
