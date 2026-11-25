@@ -1,0 +1,329 @@
+?php
+$conn = new mysqli("localhost", "root", "", "voting_db");
+
+if ($conn->connect_error) {
+    die("Database connection failed");
+}
+
+$message = "";
+
+// Submit vote
+if (isset($_POST['vote'])) {
+
+    $voter_id = strtoupper(trim($_POST['voter_id']));
+    $voter_name = trim($_POST['voter_name']);
+    $candidate_id = (int)$_POST['candidate_id'];
+
+    if ($voter_id == "" || $voter_name == "" || $candidate_id <= 0) {
+        $message = "Please fill all the details.";
+    } else {
+
+        $stmt = $conn->prepare(
+            "INSERT INTO votes
+            (voter_id, voter_name, candidate_id)
+            VALUES (?, ?, ?)"
+        );
+
+        $stmt->bind_param(
+            "ssi",
+            $voter_id,
+            $voter_name,
+            $candidate_id
+        );
+
+        if ($stmt->execute()) {
+            $message = "Your vote has been submitted successfully!";
+        } else {
+            if ($stmt->errno == 1062) {
+                $message = "You have already voted!";
+            } else {
+                $message = "Unable to submit vote.";
+            }
+        }
+
+        $stmt->close();
+    }
+}
+
+// Get candidates
+$candidates = $conn->query(
+    "SELECT * FROM candidates ORDER BY id"
+);
+
+// Get election results
+$results = $conn->query(
+    "SELECT candidates.candidate_name,
+            candidates.party_name,
+            COUNT(votes.id) AS total_votes
+     FROM candidates
+     LEFT JOIN votes
+     ON candidates.id = votes.candidate_id
+     GROUP BY candidates.id,
+              candidates.candidate_name,
+              candidates.party_name
+     ORDER BY total_votes DESC"
+);
+
+// Total votes
+$total = $conn->query(
+    "SELECT COUNT(*) AS total FROM votes"
+)->fetch_assoc()['total'];
+
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Online Voting System</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: #eef2f7;
+    margin: 0;
+    padding: 20px;
+}
+
+header {
+    background: #263b63;
+    color: white;
+    text-align: center;
+    padding: 25px;
+    border-radius: 10px;
+}
+
+.container {
+    max-width: 850px;
+    margin: 25px auto;
+    background: white;
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: 0 3px 12px #ccc;
+}
+
+h2 {
+    text-align: center;
+    color: #263b63;
+}
+
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+input, select {
+    width: 100%;
+    padding: 12px;
+    margin-top: 7px;
+    border: 1px solid #bbb;
+    border-radius: 5px;
+}
+
+button {
+    width: 100%;
+    padding: 14px;
+    margin-top: 20px;
+    background: #2874a6;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #154360;
+}
+
+.message {
+    text-align: center;
+    color: green;
+    font-weight: bold;
+    margin: 15px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 12px;
+    text-align: center;
+}
+
+th {
+    background: #263b63;
+    color: white;
+}
+
+tr:nth-child(even) {
+    background: #f2f2f2;
+}
+
+.total {
+    text-align: center;
+    background: #d6eaf8;
+    padding: 15px;
+    border-radius: 8px;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+footer {
+    text-align: center;
+    padding: 15px;
+    color: #555;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+<h1>ONLINE VOTING SYSTEM</h1>
+
+<p>Vote for Your Favourite Candidate</p>
+
+</header>
+
+
+<!-- Voting Form -->
+
+<div class="container">
+
+<h2>Voter Registration and Voting</h2>
+
+<?php if ($message != "") { ?>
+
+<div class="message">
+<?php echo htmlspecialchars($message); ?>
+</div>
+
+<?php } ?>
+
+<form method="POST">
+
+<label>Voter ID</label>
+
+<input type="text"
+name="voter_id"
+placeholder="Enter Voter ID"
+required>
+
+<label>Voter Name</label>
+
+<input type="text"
+name="voter_name"
+placeholder="Enter Your Name"
+required>
+
+<label>Select Candidate</label>
+
+<select name="candidate_id" required>
+
+<option value="">Select Candidate</option>
+
+<?php while ($candidate = $candidates->fetch_assoc()) { ?>
+
+<option value="<?php echo $candidate['id']; ?>">
+
+<?php
+echo htmlspecialchars($candidate['candidate_name'])
+. " - "
+. htmlspecialchars($candidate['party_name']);
+?>
+
+</option>
+
+<?php } ?>
+
+</select>
+
+<button type="submit" name="vote">
+SUBMIT YOUR VOTE
+</button>
+
+</form>
+
+</div>
+
+
+<!-- Election Results -->
+
+<div class="container">
+
+<h2>Election Results</h2>
+
+<div class="total">
+
+Total Votes: <?php echo $total; ?>
+
+</div>
+
+<table>
+
+<tr>
+<th>S.No</th>
+<th>Candidate Name</th>
+<th>Party Name</th>
+<th>Total Votes</th>
+</tr>
+
+<?php
+
+$i = 1;
+
+while ($row = $results->fetch_assoc()) {
+
+?>
+
+<tr>
+
+<td><?php echo $i++; ?></td>
+
+<td>
+<?php echo htmlspecialchars($row['candidate_name']); ?>
+</td>
+
+<td>
+<?php echo htmlspecialchars($row['party_name']); ?>
+</td>
+
+<td>
+<?php echo $row['total_votes']; ?>
+</td>
+
+</tr>
+
+<?php } ?>
+
+</table>
+
+</div>
+
+
+<footer>
+
+<p>Online Voting Management System</p>
+
+</footer>
+
+</body>
+</html>
+
+<?php
+$conn->close();
+?>
