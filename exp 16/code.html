@@ -1,0 +1,385 @@
+?php
+$conn = new mysqli("localhost", "root", "", "complaint_db");
+
+if ($conn->connect_error) {
+    die("Database connection failed: " . $conn->connect_error);
+}
+
+$message = "";
+
+// Submit complaint
+if (isset($_POST['submit'])) {
+
+    $name = trim($_POST['customer_name']);
+    $email = trim($_POST['email']);
+    $phone = trim($_POST['phone']);
+    $category = $_POST['category'];
+    $subject = trim($_POST['subject']);
+    $description = trim($_POST['description']);
+
+    $allowed = ["Technical", "Billing", "Service", "Product", "Other"];
+
+    if (
+        $name === "" ||
+        !filter_var($email, FILTER_VALIDATE_EMAIL) ||
+        !in_array($category, $allowed, true) ||
+        $subject === "" ||
+        $description === ""
+    ) {
+        $message = "Please enter valid complaint details.";
+    } else {
+
+        $stmt = $conn->prepare(
+            "INSERT INTO complaints
+            (customer_name, email, phone, category, subject, description)
+            VALUES (?, ?, ?, ?, ?, ?)"
+        );
+
+        $stmt->bind_param(
+            "ssssss",
+            $name, $email, $phone,
+            $category, $subject, $description
+        );
+
+        if ($stmt->execute()) {
+            $message = "Complaint submitted successfully! Complaint ID: "
+                       . $conn->insert_id;
+        } else {
+            $message = "Error submitting complaint.";
+        }
+
+        $stmt->close();
+    }
+}
+
+// Update complaint status
+if (isset($_POST['update'])) {
+
+    $id = (int)$_POST['complaint_id'];
+    $status = $_POST['status'];
+
+    if (in_array($status, ["Pending", "In Progress", "Resolved"], true)) {
+
+        $stmt = $conn->prepare(
+            "UPDATE complaints SET status=? WHERE id=?"
+        );
+
+        $stmt->bind_param("si", $status, $id);
+        $stmt->execute();
+
+        $message = $stmt->affected_rows >= 0
+            ? "Complaint status updated successfully!"
+            : "Unable to update status.";
+
+        $stmt->close();
+    }
+}
+
+// Display complaints
+$result = $conn->query(
+    "SELECT * FROM complaints ORDER BY id DESC"
+);
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Complaint Management System</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: #edf2f7;
+    margin: 0;
+    padding: 20px;
+}
+
+header {
+    background: #263b63;
+    color: white;
+    text-align: center;
+    padding: 25px;
+    border-radius: 10px;
+}
+
+.container {
+    max-width: 1000px;
+    margin: 25px auto;
+    background: white;
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: 0 3px 12px #ccc;
+}
+
+h2 {
+    text-align: center;
+    color: #263b63;
+}
+
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+input, select, textarea {
+    width: 100%;
+    padding: 12px;
+    margin-top: 7px;
+    border: 1px solid #bbb;
+    border-radius: 5px;
+}
+
+textarea {
+    height: 100px;
+    resize: vertical;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    margin-top: 20px;
+    background: #2874a6;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #154360;
+}
+
+.message {
+    text-align: center;
+    color: green;
+    font-weight: bold;
+    margin: 15px;
+}
+
+.table-box {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: center;
+}
+
+th {
+    background: #263b63;
+    color: white;
+}
+
+tr:nth-child(even) {
+    background: #f2f2f2;
+}
+
+.status-form {
+    min-width: 130px;
+}
+
+.status-form select,
+.status-form button {
+    margin-top: 5px;
+    padding: 7px;
+}
+
+.status-form button {
+    font-size: 13px;
+}
+
+footer {
+    text-align: center;
+    padding: 15px;
+    color: #555;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+<h1>Complaint Management System</h1>
+
+<p>Online Customer Complaint Registration and Tracking</p>
+
+</header>
+
+
+<!-- Complaint Registration -->
+
+<div class="container">
+
+<h2>Register Your Complaint</h2>
+
+<?php if ($message != "") { ?>
+
+<div class="message">
+<?php echo htmlspecialchars($message); ?>
+</div>
+
+<?php } ?>
+
+<form method="POST">
+
+<label>Customer Name</label>
+
+<input type="text" name="customer_name"
+placeholder="Enter your name" required>
+
+<label>Email Address</label>
+
+<input type="email" name="email"
+placeholder="Enter your email" required>
+
+<label>Phone Number</label>
+
+<input type="tel" name="phone"
+placeholder="Enter phone number">
+
+<label>Complaint Category</label>
+
+<select name="category" required>
+
+<option value="">Select Category</option>
+<option value="Technical">Technical</option>
+<option value="Billing">Billing</option>
+<option value="Service">Service</option>
+<option value="Product">Product</option>
+<option value="Other">Other</option>
+
+</select>
+
+<label>Complaint Subject</label>
+
+<input type="text" name="subject"
+placeholder="Enter complaint subject" required>
+
+<label>Complaint Description</label>
+
+<textarea name="description"
+placeholder="Describe your complaint"
+required></textarea>
+
+<button type="submit" name="submit">
+Submit Complaint
+</button>
+
+</form>
+
+</div>
+
+
+<!-- Complaint History -->
+
+<div class="container">
+
+<h2>Complaint Details</h2>
+
+<div class="table-box">
+
+<table>
+
+<tr>
+
+<th>ID</th>
+<th>Name</th>
+<th>Email</th>
+<th>Phone</th>
+<th>Category</th>
+<th>Subject</th>
+<th>Description</th>
+<th>Status</th>
+<th>Date</th>
+<th>Update</th>
+
+</tr>
+
+<?php while ($row = $result->fetch_assoc()) { ?>
+
+<tr>
+
+<td><?php echo $row['id']; ?></td>
+
+<td><?php echo htmlspecialchars($row['customer_name']); ?></td>
+
+<td><?php echo htmlspecialchars($row['email']); ?></td>
+
+<td><?php echo htmlspecialchars($row['phone']); ?></td>
+
+<td><?php echo htmlspecialchars($row['category']); ?></td>
+
+<td><?php echo htmlspecialchars($row['subject']); ?></td>
+
+<td><?php echo htmlspecialchars($row['description']); ?></td>
+
+<td><?php echo htmlspecialchars($row['status']); ?></td>
+
+<td><?php echo htmlspecialchars($row['complaint_date']); ?></td>
+
+<td>
+
+<form method="POST" class="status-form">
+
+<input type="hidden" name="complaint_id"
+value="<?php echo $row['id']; ?>">
+
+<select name="status">
+
+<option value="Pending">Pending</option>
+
+<option value="In Progress">In Progress</option>
+
+<option value="Resolved">Resolved</option>
+
+</select>
+
+<button type="submit" name="update">
+Update
+</button>
+
+</form>
+
+</td>
+
+</tr>
+
+<?php } ?>
+
+</table>
+
+</div>
+
+</div>
+
+<footer>
+
+<p>Complaint Management System | Online Service Portal</p>
+
+</footer>
+
+</body>
+</html>
+
+<?php
+$conn->close();
+?>
+
